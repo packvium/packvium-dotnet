@@ -8,7 +8,7 @@ name: release
 # Before the first run, the owner configures, once:
 #   1. On nuget.org, signed in as the account that will own the package:
 #      Account -> Trusted Publishing -> Add a policy for GitHub Actions with
-#      repository owner = toxakara, repository = packvium-dotnet,
+#      repository owner = packvium, repository = packvium-dotnet,
 #      workflow file = release.yml, environment = nuget.
 #      The policy belongs to the account, so the first push creates the `Packvium` package
 #      under it; check that the `Packvium` ID is still free before tagging.

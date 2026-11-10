@@ -9,7 +9,7 @@
     <Description>Deterministic 3D cartonization and rectangular bin packing with exact integer geometry. A full C# implementation of the Packvium engine: the same requests and the same results as the Python, PHP, Rust and JavaScript engines, plus the commerce API for quotes, eligibility policy and catalog versions. No runtime dependencies.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://packvium.com</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/toxakara/packvium-dotnet</RepositoryUrl>
+    <RepositoryUrl>https://github.com/packvium/packvium-dotnet</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageTags>bin-packing;3d-bin-packing;cartonization;container-loading;pallet;packing;logistics;shipping;deterministic</PackageTags>

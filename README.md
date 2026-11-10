@@ -11,7 +11,7 @@ matches the reference result byte for byte.
 > **Version 1.0.0.** This release corresponds to Packvium 1.0.0 in the other languages, and
 > its tests run the 1.0.0 conformance corpus: every packing fixture and every commerce case.
 > Field names, status codes and the objective vector stay the same for all of 1.x.
-> Read [GUARANTEES.md](https://github.com/toxakara/packvium-python/blob/main/docs/GUARANTEES.md)
+> Read [GUARANTEES.md](https://github.com/packvium/packvium-python/blob/main/docs/GUARANTEES.md)
 > before relying on a result.
 
 ## Install
@@ -24,7 +24,7 @@ dotnet add package Packvium
 and reference the project directly:
 
 ```bash
-git clone https://github.com/toxakara/packvium-dotnet
+git clone https://github.com/packvium/packvium-dotnet
 cd packvium-dotnet
 dotnet build Packvium.slnx -c Release
 ```
@@ -79,7 +79,7 @@ standard error. A rejection is a normal answer and exits 0.
 
 ## Examples
 
-[`examples/`](https://github.com/toxakara/packvium-dotnet/tree/main/examples) has nine examples, one file each, that you can read from top to
+[`examples/`](https://github.com/packvium/packvium-dotnet/tree/main/examples) has nine examples, one file each, that you can read from top to
 bottom. Run one by name:
 
 ```bash
@@ -98,15 +98,15 @@ have failed you.
 
 | File | What it shows |
 | --- | --- |
-| [`Basic.cs`](https://github.com/toxakara/packvium-dotnet/blob/main/examples/Basic.cs) | The smallest useful call: items go in, placements come out. |
-| [`Objectives.cs`](https://github.com/toxakara/packvium-dotnet/blob/main/examples/Objectives.cs) | All six objectives, on scenes where they choose differently, including the rate card that makes the heavier shipment the cheaper one. |
-| [`Constraints.cs`](https://github.com/toxakara/packvium-dotnet/blob/main/examples/Constraints.cs) | Upright-only, floor-only, non-stackable, top-load limits and tags that keep two items apart, plus how to read why an item was refused. |
-| [`Units.cs`](https://github.com/toxakara/packvium-dotnet/blob/main/examples/Units.cs) | Why there are no floats: fractional inches, exact ticks, and the one tick between a fit and a refusal. |
-| [`Serialization.cs`](https://github.com/toxakara/packvium-dotnet/blob/main/examples/Serialization.cs) | The request as JSON, the result in full, and which mistakes are refused and which are ignored. |
-| [`Shapes.cs`](https://github.com/toxakara/packvium-dotnet/blob/main/examples/Shapes.cs) | Items that do not fill their box: wedges sharing a crate as `convex_hull`, and a cushion that compresses until the crush limit refuses it. |
-| [`Nested.cs`](https://github.com/toxakara/packvium-dotnet/blob/main/examples/Nested.cs) | Units go into cartons and cartons go onto a pallet, in one call. |
-| [`Commerce.cs`](https://github.com/toxakara/packvium-dotnet/blob/main/examples/Commerce.cs) | Rate a shipment, apply an eligibility rule and pin a catalog version. |
-| [`Extensions.cs`](https://github.com/toxakara/packvium-dotnet/blob/main/examples/Extensions.cs) | A rule the request has no field for, a ranking of your own, and what you give up by writing them. |
+| [`Basic.cs`](https://github.com/packvium/packvium-dotnet/blob/main/examples/Basic.cs) | The smallest useful call: items go in, placements come out. |
+| [`Objectives.cs`](https://github.com/packvium/packvium-dotnet/blob/main/examples/Objectives.cs) | All six objectives, on scenes where they choose differently, including the rate card that makes the heavier shipment the cheaper one. |
+| [`Constraints.cs`](https://github.com/packvium/packvium-dotnet/blob/main/examples/Constraints.cs) | Upright-only, floor-only, non-stackable, top-load limits and tags that keep two items apart, plus how to read why an item was refused. |
+| [`Units.cs`](https://github.com/packvium/packvium-dotnet/blob/main/examples/Units.cs) | Why there are no floats: fractional inches, exact ticks, and the one tick between a fit and a refusal. |
+| [`Serialization.cs`](https://github.com/packvium/packvium-dotnet/blob/main/examples/Serialization.cs) | The request as JSON, the result in full, and which mistakes are refused and which are ignored. |
+| [`Shapes.cs`](https://github.com/packvium/packvium-dotnet/blob/main/examples/Shapes.cs) | Items that do not fill their box: wedges sharing a crate as `convex_hull`, and a cushion that compresses until the crush limit refuses it. |
+| [`Nested.cs`](https://github.com/packvium/packvium-dotnet/blob/main/examples/Nested.cs) | Units go into cartons and cartons go onto a pallet, in one call. |
+| [`Commerce.cs`](https://github.com/packvium/packvium-dotnet/blob/main/examples/Commerce.cs) | Rate a shipment, apply an eligibility rule and pin a catalog version. |
+| [`Extensions.cs`](https://github.com/packvium/packvium-dotnet/blob/main/examples/Extensions.cs) | A rule the request has no field for, a ranking of your own, and what you give up by writing them. |
 
 ## What it does
 
@@ -139,7 +139,7 @@ have failed you.
 ## Guarantees
 
 The guarantees are the same as in every Packvium engine, and
-[GUARANTEES.md](https://github.com/toxakara/packvium-python/blob/main/docs/GUARANTEES.md) states
+[GUARANTEES.md](https://github.com/packvium/packvium-python/blob/main/docs/GUARANTEES.md) states
 them. This port adds the following:
 
 - **Every corpus case passes.** All 396 packing fixtures of the 1.0.0 conformance corpus match
