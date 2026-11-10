@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Packvium.Examples</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <!-- One framework, so running the examples project needs no framework switch; roll-forward lets it start
+         on a machine that only has a newer runtime. -->
+    <TargetFrameworks></TargetFrameworks>
+    <TargetFramework>net8.0</TargetFramework>
+    <RollForward>Major</RollForward>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../src/Packvium/Packvium.csproj" />
+  </ItemGroup>
+</Project>

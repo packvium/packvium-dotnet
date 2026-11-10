@@ -1,0 +1,185 @@
+name: release
+
+# Publishing is driven by a tag, and only by a tag. There is no manual upload step and no
+# API key anywhere in this repository: NuGet Trusted Publishing exchanges this workflow's
+# OIDC identity for a short-lived key (NuGet/login), so there is no long-lived secret to leak
+# or rotate.
+#
+# Before the first run, the owner configures, once:
+#   1. On nuget.org, signed in as the account that will own the package:
+#      Account -> Trusted Publishing -> Add a policy for GitHub Actions with
+#      repository owner = toxakara, repository = packvium-dotnet,
+#      workflow file = release.yml, environment = nuget.
+#      The policy belongs to the account, so the first push creates the `Packvium` package
+#      under it; check that the `Packvium` ID is still free before tagging.
+#   2. In this repository, a variable NUGET_USER (Settings -> Secrets and variables ->
+#      Actions -> Variables) holding that nuget.org account's profile name -- the user name,
+#      not the e-mail address. NuGet/login names the account it asks a key for.
+#   3. A GitHub environment named `nuget`, with whatever reviewers the project wants. The
+#      environment is what turns "anyone who can push a tag" into "a release a named person
+#      approved".
+
+# A pre-release tag (`v1.1.0-rc.1`) never reaches nuget.org: the negated pattern must follow
+# the positive one.
+on:
+  push:
+    tags: ["v*", "!v*-*"]
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_NOLOGO: "1"
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      # The tag and the packaged version must agree. Without this, `git tag v1.1.0` on a tree
+      # that still says 1.0.0 publishes 1.0.0 under a name that claims otherwise, and the
+      # mistake is only visible after it is public and immutable.
+      - name: The tag must match the version in the project
+        run: |
+          tagged="${GITHUB_REF_NAME#v}"
+          built=$(dotnet msbuild src/Packvium/Packvium.csproj -getProperty:Version)
+          if [ "$tagged" != "$built" ]; then
+            echo "tag $GITHUB_REF_NAME does not match Packvium.csproj version $built" >&2
+            exit 1
+          fi
+
+      - run: dotnet restore Packvium.slnx
+      - run: dotnet build Packvium.slnx -c Release --no-restore
+      - run: dotnet test --solution Packvium.slnx -c Release --no-build -f net8.0
+      - run: dotnet test --solution Packvium.slnx -c Release --no-build -f net10.0
+      - run: dotnet pack src/Packvium/Packvium.csproj -c Release --no-build -o dist
+
+      - name: Install the built package into a clean project on each framework and run it
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(dotnet msbuild src/Packvium/Packvium.csproj -getProperty:Version)
+          consumer="$RUNNER_TEMP/consumer"
+          mkdir -p "$consumer"
+          cat > "$consumer/nuget.config" <<CONFIG
+          <configuration>
+            <packageSources>
+              <clear />
+              <add key="built" value="$GITHUB_WORKSPACE/dist" />
+              <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+            </packageSources>
+            <!-- Packvium can only come from the package just built; nuget.org serves nothing
+                 but the SDK's own targeting packs, and Packvium itself has no dependencies. -->
+            <packageSourceMapping>
+              <packageSource key="built">
+                <package pattern="Packvium" />
+              </packageSource>
+              <packageSource key="nuget.org">
+                <package pattern="Microsoft.*" />
+              </packageSource>
+            </packageSourceMapping>
+          </configuration>
+          CONFIG
+          # A consumer is not part of this build: stop MSBuild from inheriting its settings.
+          echo '<Project />' > "$consumer/Directory.Build.props"
+          export NUGET_PACKAGES="$consumer/packages"
+          for framework in net8.0 net10.0; do
+            app="$consumer/$framework"
+            mkdir -p "$app"
+            cat > "$app/Consumer.csproj" <<PROJECT
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <OutputType>Exe</OutputType>
+              <TargetFramework>$framework</TargetFramework>
+              <ImplicitUsings>enable</ImplicitUsings>
+              <Nullable>enable</Nullable>
+            </PropertyGroup>
+          </Project>
+          PROJECT
+            dotnet add "$app" package Packvium --version "$version"
+            cat > "$app/Program.cs" <<'PROGRAM'
+          using Packvium.Domain;
+          using Packvium.Packing;
+
+          var result = new Packer(PackingConfig.Balanced()).Pack(
+              [new Item("book", Dimensions.Mm("210", "140", "30"), quantity: 4)],
+              [new Container("box", Dimensions.Mm("400", "300", "250"))]);
+          Console.WriteLine(result.Status.Value());
+          PROGRAM
+            status=$(dotnet run --project "$app")
+            echo "$framework: $status"
+            [ "$status" = "feasible" ]
+          done
+
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: packages
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment: nuget
+    permissions:
+      id-token: write      # OIDC, for Trusted Publishing and for the attestation
+      attestations: write  # build provenance, so a consumer can verify where a package came from
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: packages
+          path: dist/
+      - uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: dist/*
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+      - uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
+        id: login
+        with:
+          user: ${{ vars.NUGET_USER }}
+      # Pushing the .nupkg also pushes the .snupkg beside it to the symbol server.
+      - run: dotnet nuget push "dist/*.nupkg" --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" --source https://api.nuget.org/v3/index.json
+
+  # Every tag gets a GitHub Release. A tag is a git object; a Release is what a human and a
+  # maintenance scorer can read, and cadence is a signal tags do not carry.
+  github-release:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # the Release is the only thing this workflow writes to the repository
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - name: Create the GitHub Release from the tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists; nothing to do."
+            exit 0
+          fi
+          # This version's entry, from its heading to the next one. A tag whose version has
+          # no entry would publish a Release nobody can read, so that fails the job rather
+          # than shipping an empty one.
+          awk -v want="## [$version]" '
+            index($0, want) == 1 { inside = 1; next }
+            inside && /^## \[/   { exit }
+            inside               { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "CHANGELOG.md carries no entry for $version" >&2
+            exit 1
+          fi
+          gh release create "$GITHUB_REF_NAME" \
+            --title "Packvium $version" \
+            --notes-file release-notes.md \
+            --verify-tag

@@ -1,0 +1,132 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Least privilege by default; jobs that need more request it explicitly.
+permissions:
+  contents: read
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_NOLOGO: "1"
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      # Both runtimes, so each target framework's tests run on its own runtime. The newest SDK
+      # builds both, and global.json needs it for the Microsoft.Testing.Platform runner.
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - run: dotnet restore Packvium.slnx
+      - run: dotnet build Packvium.slnx -c Release --no-restore
+      - run: dotnet test --solution Packvium.slnx -c Release --no-build -f net8.0
+      - run: dotnet test --solution Packvium.slnx -c Release --no-build -f net10.0
+      - name: CLI smoke test
+        shell: bash
+        run: |
+          echo '{"items":[{"id":"box","quantity":8,"dimensions":{"length":"50","width":"50","height":"50"}}],
+                 "containers":[{"id":"carton","inner_dimensions":{"length":"100","width":"100","height":"100"}}]}' \
+            | dotnet run --project src/Packvium.Cli -c Release -f net10.0 --no-build > result.json
+          grep -q '"complete": true' result.json
+
+  pack:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - run: dotnet pack src/Packvium/Packvium.csproj -c Release -o dist
+      # The package is what consumers get, so it is tested the way they use it: a fresh
+      # project on each target framework, restoring Packvium from the built .nupkg -- source
+      # mapping forbids any other origin -- then packing a request through the public API.
+      - name: Install the built package into a clean project on each framework and run it
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(dotnet msbuild src/Packvium/Packvium.csproj -getProperty:Version)
+          consumer="$RUNNER_TEMP/consumer"
+          mkdir -p "$consumer"
+          cat > "$consumer/nuget.config" <<CONFIG
+          <configuration>
+            <packageSources>
+              <clear />
+              <add key="built" value="$GITHUB_WORKSPACE/dist" />
+              <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+            </packageSources>
+            <!-- Packvium can only come from the package just built; nuget.org serves nothing
+                 but the SDK's own targeting packs, and Packvium itself has no dependencies. -->
+            <packageSourceMapping>
+              <packageSource key="built">
+                <package pattern="Packvium" />
+              </packageSource>
+              <packageSource key="nuget.org">
+                <package pattern="Microsoft.*" />
+              </packageSource>
+            </packageSourceMapping>
+          </configuration>
+          CONFIG
+          # A consumer is not part of this build: stop MSBuild from inheriting its settings.
+          echo '<Project />' > "$consumer/Directory.Build.props"
+          export NUGET_PACKAGES="$consumer/packages"
+          for framework in net8.0 net10.0; do
+            app="$consumer/$framework"
+            mkdir -p "$app"
+            cat > "$app/Consumer.csproj" <<PROJECT
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <OutputType>Exe</OutputType>
+              <TargetFramework>$framework</TargetFramework>
+              <ImplicitUsings>enable</ImplicitUsings>
+              <Nullable>enable</Nullable>
+            </PropertyGroup>
+          </Project>
+          PROJECT
+            dotnet add "$app" package Packvium --version "$version"
+            cat > "$app/Program.cs" <<'PROGRAM'
+          using Packvium.Domain;
+          using Packvium.Packing;
+
+          var result = new Packer(PackingConfig.Balanced()).Pack(
+              [new Item("book", Dimensions.Mm("210", "140", "30"), quantity: 4)],
+              [new Container("box", Dimensions.Mm("400", "300", "250"))]);
+          Console.WriteLine(result.Status.Value());
+          PROGRAM
+            status=$(dotnet run --project "$app")
+            echo "$framework: $status"
+            [ "$status" = "feasible" ]
+          done
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: packages
+          path: dist/
+
+  # Fails a pull request that introduces a dependency with a known vulnerability or a
+  # licence the project has not accepted. The package has no runtime dependencies, so its
+  # usual answer is "nothing changed" -- the answer worth keeping true rather than assuming.
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: low
+          comment-summary-in-pr: on-failure

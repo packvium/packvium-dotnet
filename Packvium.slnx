@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/examples/">
+    <Project Path="examples/Packvium.Examples.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Packvium.Cli/Packvium.Cli.csproj" />
+    <Project Path="src/Packvium/Packvium.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Packvium.Tests/Packvium.Tests.csproj" />
+  </Folder>
+</Solution>

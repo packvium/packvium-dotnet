@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Packvium</RootNamespace>
+    <AssemblyName>Packvium</AssemblyName>
+    <Version>1.0.0</Version>
+
+    <PackageId>Packvium</PackageId>
+    <Authors>Anton Kara</Authors>
+    <Description>Deterministic 3D cartonization and rectangular bin packing with exact integer geometry. A full C# implementation of the Packvium engine: the same requests and the same results as the Python, PHP, Rust and JavaScript engines, plus the commerce API for quotes, eligibility policy and catalog versions. No runtime dependencies.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://packvium.com</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/toxakara/packvium-dotnet</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>bin-packing;3d-bin-packing;cartonization;container-loading;pallet;packing;logistics;shipping;deterministic</PackageTags>
+
+    <!-- The doc file ships so IntelliSense shows the summaries written on the public types and
+         solvers. CS1591 (a public member with no comment) is not raised: 638 members are
+         record properties, enum values and operators whose names are their documentation. Every
+         other documentation warning (a broken cref, a mismatched param) is still an error. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+  </PropertyGroup>
+
+  <!-- On a CI runner, paths in the PDB are normalised so the same commit builds the same bytes. -->
+  <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+    <None Include="../../LICENSE" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Packvium.Tests" />
+  </ItemGroup>
+</Project>

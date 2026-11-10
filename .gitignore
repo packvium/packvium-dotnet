@@ -1,0 +1,5 @@
+bin/
+obj/
+.corpus/
+TestResults/
+.DS_Store
