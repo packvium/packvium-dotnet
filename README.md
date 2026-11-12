@@ -20,19 +20,6 @@ matches the reference result byte for byte.
 dotnet add package Packvium
 ```
 
-**Not on NuGet yet.** This package has not been published. Until it is, build it from source
-and reference the project directly:
-
-```bash
-git clone https://github.com/packvium/packvium-dotnet
-cd packvium-dotnet
-dotnet build Packvium.slnx -c Release
-```
-
-```xml
-<ProjectReference Include="path/to/packvium-dotnet/src/Packvium/Packvium.csproj" />
-```
-
 ## Quick start
 
 ```csharp
