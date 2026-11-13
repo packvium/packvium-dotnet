@@ -4,6 +4,7 @@ using System.Collections.Immutable;
 using System.Linq;
 using Packvium.Constraints;
 using Packvium.Domain;
+using Packvium.Units;
 
 namespace Packvium.Algorithms;
 
@@ -130,14 +131,16 @@ public sealed class ContainerState
         // exact collision test to decide.
         if (shape is null)
         {
-            var retired = points.Where(entry => box.ContainsPoint(entry.Value)).Select(entry => entry.Key).ToHashSet();
+            var retired = points.Keys.Where(key => Inside(bound, key.Item1, key.Item2, key.Item3)).ToList();
             foreach (var key in retired)
             {
                 points.Remove(key);
             }
+            // OrderedPoints holds exactly the points of the dictionary, so the same test retires
+            // the same set there without building a key per point.
             if (retired.Count > 0)
             {
-                OrderedPoints = [.. OrderedPoints.Where(point => !retired.Contains((point.X, point.Y, point.Z)))];
+                OrderedPoints = [.. OrderedPoints.Where(point => !Inside(bound, point.X, point.Y, point.Z))];
             }
         }
         Absorb(ExposedPoints(box));
@@ -167,9 +170,12 @@ public sealed class ContainerState
         foreach (var point in candidates)
         {
             var (x, y, z) = (point.X, point.Y, point.Z);
+            // A solid containing a point is registered in that point's cell, so only that
+            // bucket is checked rather than every bound in the container.
             if (x >= inner.Length.Ticks || y >= inner.Width.Ticks || z >= inner.Height.Ticks
                 || points.ContainsKey((x, y, z))
-                || Bounds.Any(b => b.X1 <= x && x < b.X2 && b.Y1 <= y && y < b.Y2 && b.Z1 <= z && z < b.Z2))
+                || Index.Bucket(IntMath.FloorDiv(x, Index.CellX), IntMath.FloorDiv(y, Index.CellY), IntMath.FloorDiv(z, Index.CellZ))
+                    .Any(position => Inside(Bounds[position], x, y, z)))
             {
                 continue;
             }
@@ -214,17 +220,70 @@ public sealed class ContainerState
         ];
     }
 
-    private long SurfaceZ(long x, long y, long ceiling) => Bounds
-        .Where(b => b.Z2 <= ceiling && b.X1 <= x && x < b.X2 && b.Y1 <= y && y < b.Y2)
-        .Select(b => b.Z2).DefaultIfEmpty(0).Max();
+    private static bool Inside(Bound b, long x, long y, long z) =>
+        b.X1 <= x && x < b.X2 && b.Y1 <= y && y < b.Y2 && b.Z1 <= z && z < b.Z2;
 
-    private long SurfaceY(long x, long z, long ceiling) => Bounds
-        .Where(b => b.Y2 <= ceiling && b.X1 <= x && x < b.X2 && b.Z1 <= z && z < b.Z2)
-        .Select(b => b.Y2).DefaultIfEmpty(0).Max();
+    // Each projection is the highest face at or below a ceiling among the solids whose
+    // footprint covers the point on the other two axes. Such a solid ends inside the ceiling,
+    // so it is registered in one of the cells of the ray below it: walking that ray visits
+    // every solid that can contribute, and a maximum is indifferent to seeing one twice.
+    // O(cells on the ray + their bucket sizes) rather than O(all solids).
+    private long SurfaceZ(long x, long y, long ceiling)
+    {
+        var (ix, iy) = (IntMath.FloorDiv(x, Index.CellX), IntMath.FloorDiv(y, Index.CellY));
+        var best = 0L;
+        var cellsBelow = IntMath.CeilDiv(ceiling, Index.CellZ);
+        for (var iz = 0L; iz < cellsBelow; iz++)
+        {
+            foreach (var position in Index.Bucket(ix, iy, iz))
+            {
+                var b = Bounds[position];
+                if (best < b.Z2 && b.Z2 <= ceiling && b.X1 <= x && x < b.X2 && b.Y1 <= y && y < b.Y2)
+                {
+                    best = b.Z2;
+                }
+            }
+        }
+        return best;
+    }
 
-    private long SurfaceX(long y, long z, long ceiling) => Bounds
-        .Where(b => b.X2 <= ceiling && b.Y1 <= y && y < b.Y2 && b.Z1 <= z && z < b.Z2)
-        .Select(b => b.X2).DefaultIfEmpty(0).Max();
+    private long SurfaceY(long x, long z, long ceiling)
+    {
+        var (ix, iz) = (IntMath.FloorDiv(x, Index.CellX), IntMath.FloorDiv(z, Index.CellZ));
+        var best = 0L;
+        var cellsBelow = IntMath.CeilDiv(ceiling, Index.CellY);
+        for (var iy = 0L; iy < cellsBelow; iy++)
+        {
+            foreach (var position in Index.Bucket(ix, iy, iz))
+            {
+                var b = Bounds[position];
+                if (best < b.Y2 && b.Y2 <= ceiling && b.X1 <= x && x < b.X2 && b.Z1 <= z && z < b.Z2)
+                {
+                    best = b.Y2;
+                }
+            }
+        }
+        return best;
+    }
+
+    private long SurfaceX(long y, long z, long ceiling)
+    {
+        var (iy, iz) = (IntMath.FloorDiv(y, Index.CellY), IntMath.FloorDiv(z, Index.CellZ));
+        var best = 0L;
+        var cellsBelow = IntMath.CeilDiv(ceiling, Index.CellX);
+        for (var ix = 0L; ix < cellsBelow; ix++)
+        {
+            foreach (var position in Index.Bucket(ix, iy, iz))
+            {
+                var b = Bounds[position];
+                if (best < b.X2 && b.X2 <= ceiling && b.Y1 <= y && y < b.Y2 && b.Z1 <= z && z < b.Z2)
+                {
+                    best = b.X2;
+                }
+            }
+        }
+        return best;
+    }
 }
 
 /// <summary>Placements re-read with the load the finished support graph puts on each.</summary>

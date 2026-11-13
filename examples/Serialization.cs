@@ -19,7 +19,9 @@ namespace Packvium.Examples;
 public static class Serialization
 {
     // The whole vocabulary in miniature: units, solver configuration, items with rules and
-    // a container with a carrier rate card.
+    // a container with a carrier rate card. The time limit is a safety fuse, not a target:
+    // how many runners-up top_k finds is otherwise bounded by the wall clock, and an example
+    // must not change its answer because the machine is busy.
     private const string Request = """
         {
           "units": {"length": "mm"},
@@ -30,7 +32,8 @@ public static class Serialization
             "dimensional_weight_weight_unit": "kg",
             "profile": "balanced",
             "seed": 42,
-            "top_k": 2
+            "top_k": 2,
+            "time_limit_ms": 60000
           },
           "items": [
             {"id": "book", "quantity": 6, "dimensions": {"length": "210", "width": "140", "height": "30"}, "weight": "450 g"},
@@ -100,7 +103,9 @@ public static class Serialization
         {
             Console.WriteLine($"unknown objective: {refusal.Message[..100]}");
         }
-        Console.WriteLine("fields this engine refuses by name: none");
+        var refused = UnsupportedFields.ByScope.Where(entry => !entry.Fields.IsEmpty)
+            .Select(entry => $"{Python.Quote(entry.Scope)}: {Python.StringTuple(entry.Fields)}").ToList();
+        Console.WriteLine($"fields this engine refuses by name: {(refused.Count == 0 ? "none" : $"{{{string.Join(", ", refused)}}}")}");
 
         // The same document drives the command line, which reads a request on stdin and
         // writes a result on stdout.

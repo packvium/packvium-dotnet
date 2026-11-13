@@ -15,6 +15,10 @@ internal static class Python
     /// <summary><c>(0, 1, 2)</c></summary>
     public static string Tuple(IEnumerable<long> values) => $"({string.Join(", ", values)})";
 
+    /// <summary><c>('a', 'b')</c>, and <c>('a',)</c> for one member.</summary>
+    public static string StringTuple(IReadOnlyCollection<string> values) =>
+        values.Count == 1 ? $"({Quote(values.First())},)" : $"({string.Join(", ", values.Select(Quote))})";
+
     /// <summary><c>[0, 1, 2]</c></summary>
     public static string IntegerList(IEnumerable<long> values) => $"[{string.Join(", ", values)}]";
 

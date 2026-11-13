@@ -8,8 +8,8 @@ binding over another one. It accepts the same requests and returns the same resu
 Python and PHP engines. Its tests run the shared conformance corpus, and every result
 matches the reference result byte for byte.
 
-> **Version 1.0.0.** This release corresponds to Packvium 1.0.0 in the other languages, and
-> its tests run the 1.0.0 conformance corpus: every packing fixture and every commerce case.
+> **Version 1.1.0.** This release corresponds to Packvium 1.1.0 in the other languages, and
+> its tests run the 1.1.0 conformance corpus: every packing fixture and every commerce case.
 > Field names, status codes and the objective vector stay the same for all of 1.x.
 > Read [GUARANTEES.md](https://github.com/packvium/packvium-python/blob/main/docs/GUARANTEES.md)
 > before relying on a result.
@@ -105,7 +105,12 @@ have failed you.
   - top-load, stack-count and stack-density limits, minimum support ratio;
   - incompatible tags, clearance and obstacles;
   - axle loads, route order, convex-hull items and compressible items;
+  - container doors (`access_directions`): an item due at an earlier stop must keep a clear
+    path to one of them;
   - versioned policy rules.
+- **Reserved fields are refused.** `container.pallet_overhang_limit` is part of the 1.1.0
+  request schema but no engine implements it yet, so a request that sets it is refused with
+  `unsupported_feature` rather than packed as if it were absent.
 - **Several solvers, not one.** Grid, layer, extreme-point, maximal-space, homogeneous-block
   and exact search for small problems. Which ones run depends on the shape of the problem and
   the chosen profile.
@@ -129,7 +134,7 @@ The guarantees are the same as in every Packvium engine, and
 [GUARANTEES.md](https://github.com/packvium/packvium-python/blob/main/docs/GUARANTEES.md) states
 them. This port adds the following:
 
-- **Every corpus case passes.** All 396 packing fixtures of the 1.0.0 conformance corpus match
+- **Every corpus case passes.** All 398 packing fixtures of the 1.1.0 conformance corpus match
   the reference engine's canonical result byte for byte, and all 55 commerce cases pass the
   release's own commerce harness.
 - **Conformance is checked by the release's own harness.** The command-line program is driven

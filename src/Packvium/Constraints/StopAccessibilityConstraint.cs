@@ -6,16 +6,22 @@ using Packvium.Domain;
 namespace Packvium.Constraints;
 
 /// <summary>
-/// Refuses a placement that walls an earlier-stop item away from every door. Inert unless the
-/// caller names exit directions and two distinct stops are in play. Blockers are strictly
-/// later stops: the order within one stop is free. O(n^2 d) per placement-list rebuild for d
-/// doors, O(n d) per candidate.
+/// Refuses a placement that walls an earlier-stop item away from every door. Inert unless
+/// doors are stated and two distinct stops are in play. Blockers are strictly later stops: the
+/// order within one stop is free. O(n^2 d) per placement-list rebuild for d doors, O(n d) per
+/// candidate.
+/// <para>
+/// The doors are the container's own <c>access_directions</c>, falling back to the ones given
+/// here: two doors on one trailer and none on another is a per-container fact, so a solve
+/// over several container types cannot share one answer, while a library caller who configured
+/// doors for the whole solve keeps that behaviour for every container that states none.
+/// </para>
 /// </summary>
 public sealed class StopAccessibilityConstraint : IPlacementConstraint
 {
-    private readonly ImmutableArray<string> directions;
     private ImmutableArray<Placement> cachedPlacements;
     private Dimensions? cachedContainer;
+    private ImmutableArray<string> cachedDirections = [];
     private ImmutableArray<ImmutableArray<string>> clear = [];
     private ImmutableArray<long> stops = [];
 
@@ -27,18 +33,30 @@ public sealed class StopAccessibilityConstraint : IPlacementConstraint
             throw new InvalidDirectionException(direction);
         }
         // Canonical order rather than as given, so two callers naming the same doors search identically.
-        this.directions = [.. Directions.All.Where(given.Contains)];
+        DefaultDirections = [.. Directions.All.Where(given.Contains)];
     }
+
+    /// <summary>The doors a container that states none of its own inherits.</summary>
+    public ImmutableArray<string> DefaultDirections { get; }
+
+    /// <summary>The doors in force for <paramref name="container"/>; empty leaves the rule inert.</summary>
+    public ImmutableArray<string> DirectionsFor(Container container) =>
+        container.AccessDirections.IsEmpty ? DefaultDirections : container.AccessDirections;
 
     public ConstraintResult Evaluate(ConstraintContext context)
     {
-        if (directions.IsEmpty || !context.RouteSensitive)
+        if (!context.RouteSensitive)
+        {
+            return ConstraintResult.Allow();
+        }
+        var directions = DirectionsFor(context.Container);
+        if (directions.IsEmpty)
         {
             return ConstraintResult.Allow();
         }
         var candidateStop = Stops.Of(context.Item.Item);
         var inner = context.Container.InnerDimensions;
-        BaseFor(context.Placements, inner);
+        BaseFor(context.Placements, inner, directions);
         if (stops.Append(candidateStop).Distinct().Count() < 2)
         {
             return ConstraintResult.Allow();
@@ -73,9 +91,12 @@ public sealed class StopAccessibilityConstraint : IPlacementConstraint
     }
 
     /// <summary>Per placed box, the doors still open to it against the boxes already placed.</summary>
-    private void BaseFor(ImmutableArray<Placement> placements, Dimensions container)
+    private void BaseFor(ImmutableArray<Placement> placements, Dimensions container, ImmutableArray<string> directions)
     {
-        if (!cachedPlacements.IsDefault && cachedPlacements == placements && cachedContainer == container)
+        // Keyed on the doors too: two containers of the same size with different doors give
+        // the same boxes different exits, and nothing else in the key separates them.
+        if (!cachedPlacements.IsDefault && cachedPlacements == placements && cachedContainer == container
+            && cachedDirections.SequenceEqual(directions))
         {
             return;
         }
@@ -97,5 +118,6 @@ public sealed class StopAccessibilityConstraint : IPlacementConstraint
         clear = open.MoveToImmutable();
         cachedPlacements = placements;
         cachedContainer = container;
+        cachedDirections = directions;
     }
 }

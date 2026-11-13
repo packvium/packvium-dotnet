@@ -100,4 +100,15 @@ public sealed class ModelTests
             new Container("c", Dimensions.Mm("10", "10", "10"), obstacles: [obstacle]));
         Assert.Equal("obstacle o lies outside container", error.Message);
     }
+
+    /// <summary>Produced by the reference engine at v1.1.0.</summary>
+    [Fact]
+    public void KeepsContainerDoorsInCanonicalOrderOnce() =>
+        Assert.Equal(["+x", "-z"], new Container("c", Cube, accessDirections: ["-z", "+x", "-z"]).AccessDirections.ToArray());
+
+    /// <summary>Produced by the reference engine at v1.1.0.</summary>
+    [Fact]
+    public void RefusesADoorOutsideTheSixFaces() =>
+        Assert.Equal("unknown movement direction 'up'; expected one of ('+x', '-x', '+y', '-y', '+z', '-z')",
+            Assert.Throws<InvalidDirectionException>(() => new Container("c", Cube, accessDirections: ["up"])).Message);
 }

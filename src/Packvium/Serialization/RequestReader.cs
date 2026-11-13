@@ -31,6 +31,7 @@ public static class RequestReader
     public static PackingCall Read(JsonValue document)
     {
         var data = PythonCoercion.Object(document);
+        UnsupportedFields.Reject(data);
         var unit = PythonCoercion.Str(PythonCoercion.Object(data.Get("units") ?? Empty).Get("length")
                                       ?? new JsonString("mm"));
         var configuration = ReadConfiguration(PythonCoercion.Object(data.Get("configuration") ?? Empty), unit);
@@ -170,7 +171,8 @@ public static class RequestReader
                 .ToImmutableArray(),
             metadata: Metadata(raw.Get("metadata")),
             maxStackDensity: raw.GetPresent("max_stack_density") is { } density ? Measures.Weight(density) : null,
-            axles: raw.GetPresent("axles") is { } axles ? ReadAxles(axles, unit) : null);
+            axles: raw.GetPresent("axles") is { } axles ? ReadAxles(axles, unit) : null,
+            accessDirections: PythonCoercion.StringMembers(raw.Get("access_directions") ?? new JsonArray([])));
     }
 
     private static RateTable ReadRateTable(JsonObject raw) => new(

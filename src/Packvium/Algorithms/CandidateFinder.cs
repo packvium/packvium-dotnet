@@ -86,6 +86,15 @@ public static class CandidateFinder
         var placed = state.Placements.ToImmutableArray();
         var stackSensitive = state.StackSensitive || item.Item.IsStackSensitive || container.MaxStackDensity is not null;
         var routeSensitive = item.Item.StopIndex is not null || state.RouteSensitive;
+        var nesting = item.Item.NestingHeight is not null;
+        var reserveCheck = container.VoidFillReserveRatio > 0 && reserveNeedsCandidate;
+        Int128 usable = reserveCheck ? SupportRatio.UsableVolume(container) : 0;
+        var placementOffset = state.Bounds.Count - placed.Length;
+        // Everything that decides whether a rule can fire is fixed for this call, so the chain
+        // is pruned once here rather than answered "allow" once per position. The support rule
+        // stays in regardless: SupportChecks counts every time the chain reaches it.
+        var active = ConstraintActivity.Active(constraints, container, item, stackSensitive, routeSensitive)
+            .Select(constraint => (constraint, constraint is SupportConstraint)).ToList();
         var ordered = points is null
             ? DefaultPoints(state, item, config, forms, limitX)
             : [.. points.OrderBy(p => (p.Z, p.Y, p.X))];
@@ -104,26 +113,25 @@ public static class CandidateFinder
                 {
                     continue;
                 }
-                Placement? tentative = item.Item.NestingHeight is null
+                Placement? tentative = !nesting
                     ? null
                     : new Placement(item, new Point(x1 + clearance, y1 + clearance, z1 + clearance), form.Rotation,
                         form.Physical, point, form.Envelope);
-                if (Blocked(state, placed, form, tentative, point, stats))
+                if (Blocked(state, placed, placementOffset, form, tentative, point, stats))
                 {
                     continue;
                 }
                 var context = new ConstraintContext(container, placed, item, point, form.Rotation, form.Physical,
                     form.Envelope, stackSensitive, routeSensitive);
-                if (Rejected(constraints, context, stats))
+                if (Rejected(active, context, stats))
                 {
                     continue;
                 }
                 var position = tentative?.Position ?? new Point(x1 + clearance, y1 + clearance, z1 + clearance);
                 var candidate = new Candidate(point, position, form.Rotation, form.Physical, form.Envelope,
                     Score(state, point, form.Envelope));
-                if (container.VoidFillReserveRatio > 0 && reserveNeedsCandidate
-                    && ProjectedVolume(state, placed, item, candidate, tentative, compressionSensitive)
-                    > SupportRatio.UsableVolume(container))
+                if (reserveCheck
+                    && ProjectedVolume(state, placed, item, candidate, tentative, compressionSensitive, usable) > usable)
                 {
                     continue;
                 }
@@ -302,12 +310,11 @@ public static class CandidateFinder
         return points;
     }
 
-    private static bool Blocked(ContainerState state, ImmutableArray<Placement> placed, Form form,
-        Placement? tentative, Point point, SearchStats stats)
+    private static bool Blocked(ContainerState state, ImmutableArray<Placement> placed, int placementOffset,
+        Form form, Placement? tentative, Point point, SearchStats stats)
     {
         var (x1, y1, z1) = (point.X, point.Y, point.Z);
         var (x2, y2, z2) = (x1 + form.Dx, y1 + form.Dy, z1 + form.Dz);
-        var placementOffset = state.Bounds.Count - placed.Length;
         foreach (var index in state.Index.Query(x1, y1, z1, x2, y2, z2))
         {
             var b = state.Bounds[index];
@@ -334,11 +341,12 @@ public static class CandidateFinder
         return false;
     }
 
-    private static bool Rejected(IReadOnlyList<IPlacementConstraint> constraints, ConstraintContext context, SearchStats stats)
+    private static bool Rejected(List<(IPlacementConstraint Constraint, bool CountsSupport)> active,
+        ConstraintContext context, SearchStats stats)
     {
-        foreach (var constraint in constraints)
+        foreach (var (constraint, countsSupport) in active)
         {
-            if (constraint is SupportConstraint)
+            if (countsSupport)
             {
                 stats.SupportChecks++;
             }
@@ -351,7 +359,7 @@ public static class CandidateFinder
     }
 
     private static Int128 ProjectedVolume(ContainerState state, ImmutableArray<Placement> placed, ItemInstance item,
-        Candidate candidate, Placement? tentative, bool compressionSensitive)
+        Candidate candidate, Placement? tentative, bool compressionSensitive, Int128 usable)
     {
         var reserve = tentative ?? new Placement(item, candidate.Position, candidate.Rotation, candidate.Dimensions,
             candidate.Point, candidate.EnvelopeDimensions);
@@ -363,7 +371,7 @@ public static class CandidateFinder
         // supports, so this upper bound is safe; only candidates near the boundary pay the
         // non-local recomputation.
         var upperBound = state.UsedVolumeTicks + Nesting.OccupiedVolume(reserve);
-        return upperBound <= SupportRatio.UsableVolume(state.Container)
+        return upperBound <= usable
             ? upperBound
             : Loads.UsedVolumeWithCurrentLoads([.. placed, reserve]);
     }

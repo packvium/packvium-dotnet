@@ -29,7 +29,8 @@ public sealed class Container
         IEnumerable<KeyValuePair<string, long>>? tagLimits = null,
         IReadOnlyDictionary<string, object?>? metadata = null,
         Weight? maxStackDensity = null,
-        (Axle Front, Axle Rear)? axles = null)
+        (Axle Front, Axle Rear)? axles = null,
+        IEnumerable<string>? accessDirections = null)
     {
         Id = id;
         InnerDimensions = innerDimensions;
@@ -46,7 +47,11 @@ public sealed class Container
         Metadata = metadata ?? NoMetadata;
         MaxStackDensity = maxStackDensity;
         Axles = axles;
-        Validate();
+        var doors = (accessDirections ?? []).ToList();
+        Validate(doors);
+        // Canonical order rather than as given: two callers naming the same doors in a
+        // different order must search identically.
+        AccessDirections = [.. Directions.All.Where(doors.Contains)];
         Tags = (tags ?? []).ToFrozenSet(StringComparer.Ordinal);
     }
 
@@ -87,7 +92,14 @@ public sealed class Container
     /// <summary>Front and rear axle, the front nearer the container's own x origin.</summary>
     public (Axle Front, Axle Rear)? Axles { get; }
 
-    private void Validate()
+    /// <summary>
+    /// Walls this container can be unloaded through, in canonical order. Empty leaves the
+    /// horizontal half of route order unenforced -- it does not mean sealed, and it is not
+    /// read as all six, which would change answers for every caller who never set it.
+    /// </summary>
+    public ImmutableArray<string> AccessDirections { get; }
+
+    private void Validate(List<string> doors)
     {
         if (Id.Length == 0)
         {
@@ -109,6 +121,10 @@ public sealed class Container
         if (TagLimits.Any(limit => limit.Value < 1))
         {
             throw new ArgumentException("tag_limits must be at least 1");
+        }
+        if (doors.FirstOrDefault(door => !Directions.All.Contains(door)) is { } unknown)
+        {
+            throw new InvalidDirectionException(unknown);
         }
         if (OuterDimensions is not null && !InnerDimensions.FitsInside(OuterDimensions))
         {
