@@ -2,8 +2,8 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <RootNamespace>Packvium.Cli</RootNamespace>
-    <Version>1.1.0</Version>
-    <!-- Not packed for 1.1.0: it drives the conformance harness and is built from source. -->
+    <Version>1.2.0</Version>
+    <!-- Not packed for 1.2.0: it drives the conformance harness and is built from source. -->
     <IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup>

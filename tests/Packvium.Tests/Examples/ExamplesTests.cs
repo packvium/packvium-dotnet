@@ -45,13 +45,43 @@ public sealed partial class ExamplesTests
             ("   nothing matched, so the shipment is allowed with no citation: None",
              "   nothing matched, so the shipment is allowed with no citation: null"),
         ],
+        // The reference's section 4 speaks for its four engines and names its JavaScript
+        // example; this port's text speaks for this engine instead.
+        ["execution"] =
+        [
+            ("4. One plan, four engines, the same bytes",
+             "4. One plan, every engine, the same bytes"),
+            ("  Hand the same *result* to all four adapters and they emit the same bytes. That",
+             "  Hand the same *result* to any Packvium adapter, this one included, and it emits"),
+            ("  is stricter than the packing contract, and it can be: a plan is derived from a",
+             "  the same bytes. That is stricter than the packing contract, and it can be: a"),
+            ("  result, so there is nothing left to differ about.",
+             "  plan is derived from a result, so there is nothing left to differ about."),
+            ("  It does not follow that four engines packing the same *request* agree. Python",
+             "  It does not follow that every engine packing the same *request* agrees. This"),
+            ("  and PHP are held to identical placements and do produce this exact form; Rust",
+             "  engine, like Python and PHP, is held to identical placements and produces this"),
+            ("  and JavaScript are held to a valid answer at or above the objective floor, and",
+             "  exact form; the Rust and JavaScript engines are held to a valid answer at or"),
+            ("  `examples/execution.mjs` prints 1280 bytes here rather than 1877 for that",
+             "  above the objective floor, so their plan for this request can be a different"),
+            ("  reason. Whose packing is better is a question the plan never answers.",
+             "  length. Whose packing is better is a question the plan never answers."),
+        ],
+        ["intelligence"] =
+        [
+            ("  minimum_confidence=0.9 -> None",
+             "  minimum_confidence=0.9 -> null"),
+            ("  met. `None` is the whole answer: there is no low-confidence proposal to weigh.",
+             "  met. `null` is the whole answer: there is no low-confidence proposal to weigh."),
+        ],
     };
 
     public static TheoryData<string> Names => [.. Program.Examples.Keys];
 
     [Theory]
     [MemberData(nameof(Names))]
-    public void PrintsWhatThePythonExamplePrints(string name) =>
+    public void PrintsWhatTheReferenceExamplePrints(string name) =>
         Assert.Equal(Expected(name, File.ReadAllText(VendoredOutput(name))), Mask(Run(name)));
 
     /// <summary>

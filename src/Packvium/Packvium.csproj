@@ -2,7 +2,7 @@
   <PropertyGroup>
     <RootNamespace>Packvium</RootNamespace>
     <AssemblyName>Packvium</AssemblyName>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
 
     <PackageId>Packvium</PackageId>
     <Authors>Anton Kara</Authors>

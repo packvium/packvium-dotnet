@@ -20,6 +20,13 @@ namespace Packvium.Examples;
 /// </summary>
 public static class Constraints
 {
+    /// <summary>
+    /// An example must not change answer merely because the host was busy. These solves need
+    /// a fraction of the budget; the generous wall-clock value is only a safety fuse, so a
+    /// loaded machine cannot cut the multi-start portfolio short and let a different start win.
+    /// </summary>
+    private const long SafetyFuseMs = 60_000;
+
     public static void Run()
     {
         Item[] items =
@@ -44,7 +51,7 @@ public static class Constraints
             new("crate", Dimensions.Mm("600", "500", "500"), tareWeight: Weight.Parse("3 kg"),
                 maxPayload: Weight.Parse("25 kg"), costMinor: 400),
         ];
-        var result = new Packer(PackingConfig.Balanced()).Pack(items, containers);
+        var result = new Packer(PackingConfig.Balanced(timeLimitMs: SafetyFuseMs)).Pack(items, containers);
 
         Console.WriteLine($"status: {result.Status.Value()}");
         Console.WriteLine($"containers opened: {result.Containers.Length}");
@@ -114,7 +121,7 @@ public static class Constraints
         Console.WriteLine($"\n{rule}");
         foreach (var (label, variant) in (ValueTuple<string, IReadOnlyList<Item>>[])[("without the rule", without), ("with the rule   ", withRule)])
         {
-            var outcome = new Packer(PackingConfig.Balanced()).Pack(variant, containers);
+            var outcome = new Packer(PackingConfig.Balanced(timeLimitMs: SafetyFuseMs)).Pack(variant, containers);
             Console.WriteLine($"  {label}: {outcome.Containers.Length} container(s), "
                               + $"{outcome.Containers.Sum(c => c.Placements.Length)} placed, {outcome.Unpacked.Length} refused");
             foreach (var unpacked in outcome.Unpacked)

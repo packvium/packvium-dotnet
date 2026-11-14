@@ -44,8 +44,10 @@ public sealed record Candidate(
 
 /// <summary>
 /// The shared feasibility engine every solver places through. One call is
-/// O(p * r * (q + C)) for p candidate points (capped by <c>max_candidate_points</c>), r unique
-/// rotations, q spatial-index hits and C the constraint cost.
+/// O(p * r * (q + C + log k)) for p candidate points (capped by <c>max_candidate_points</c>), r
+/// unique rotations, q spatial-index hits, C the constraint cost and k the candidate cap; a
+/// bounded call keeps O(k) candidates, an unbounded one all f feasible ones and sorts them,
+/// O(f log f).
 /// </summary>
 public static class CandidateFinder
 {
@@ -100,6 +102,9 @@ public static class CandidateFinder
             : [.. points.OrderBy(p => (p.Z, p.Y, p.X))];
         var candidates = new List<Candidate>();
         Candidate? best = null;
+        var bounded = maxCandidates > 1;
+        // Root is the worst retained entry: the highest score, and on a tie the latest one.
+        var retained = bounded ? new PriorityQueue<Candidate, (CandidateScore, long)>(Worst.Instance) : null;
         foreach (var point in ordered)
         {
             deadline.Check();
@@ -127,25 +132,37 @@ public static class CandidateFinder
                 {
                     continue;
                 }
+                var score = Score(state, point, form.Envelope);
                 var position = tentative?.Position ?? new Point(x1 + clearance, y1 + clearance, z1 + clearance);
-                var candidate = new Candidate(point, position, form.Rotation, form.Physical, form.Envelope,
-                    Score(state, point, form.Envelope));
                 if (reserveCheck
-                    && ProjectedVolume(state, placed, item, candidate, tentative, compressionSensitive, usable) > usable)
+                    && ProjectedVolume(state, placed, item, point, position, form, tentative, compressionSensitive, usable) > usable)
                 {
                     continue;
                 }
                 stats.CandidatesEvaluated++;
+                // Every check and counter above still runs; only a candidate that survives
+                // selection is materialized. Equal scores keep the earlier enumeration entry.
                 if (maxCandidates == 1)
                 {
-                    if (best is null || candidate.Score < best.Score)
+                    if (best is null || score < best.Score)
                     {
-                        best = candidate;
+                        best = new Candidate(point, position, form.Rotation, form.Physical, form.Envelope, score);
                     }
+                    continue;
                 }
-                else
+                if (retained is null)
                 {
-                    candidates.Add(candidate);
+                    candidates.Add(new Candidate(point, position, form.Rotation, form.Physical, form.Envelope, score));
+                    continue;
+                }
+                var key = (score, stats.CandidatesEvaluated);
+                if (retained.Count < maxCandidates)
+                {
+                    retained.Enqueue(new Candidate(point, position, form.Rotation, form.Physical, form.Envelope, score), key);
+                }
+                else if (retained.TryPeek(out _, out var worst) && score < worst.Item1)
+                {
+                    retained.DequeueEnqueue(new Candidate(point, position, form.Rotation, form.Physical, form.Envelope, score), key);
                 }
             }
         }
@@ -153,11 +170,35 @@ public static class CandidateFinder
         {
             return best is null ? [] : [best];
         }
-        // A stable sort keeps enumeration order as the deterministic tie-break, which is what
-        // the reference's top-k selection keys on too.
-        var sorted = candidates.Select((candidate, index) => (candidate, index))
-            .OrderBy(entry => entry.candidate.Score).ThenBy(entry => entry.index).Select(entry => entry.candidate);
-        return maxCandidates is { } k && candidates.Count > k ? [.. sorted.Take((int)k)] : [.. sorted];
+        if (retained is not null)
+        {
+            return [.. retained.UnorderedItems.OrderBy(entry => entry.Priority, Worst.Instance.Reversed).Select(entry => entry.Element)];
+        }
+        if (maxCandidates is not null)
+        {
+            return [];
+        }
+        // A stable sort keeps enumeration order as the deterministic tie-break.
+        return [.. candidates.OrderBy(candidate => candidate.Score)];
+    }
+
+    /// <summary>
+    /// Orders (score, enumeration ordinal) worst first, so a bounded queue's root is the entry the
+    /// next better candidate replaces. Ordinals are unique, so the order is total and the
+    /// selection does not depend on the heap's internal layout.
+    /// </summary>
+    private sealed class Worst : IComparer<(CandidateScore Score, long Ordinal)>
+    {
+        public static Worst Instance { get; } = new();
+
+        public IComparer<(CandidateScore Score, long Ordinal)> Reversed { get; } =
+            Comparer<(CandidateScore Score, long Ordinal)>.Create((x, y) => Instance.Compare(y, x));
+
+        public int Compare((CandidateScore Score, long Ordinal) x, (CandidateScore Score, long Ordinal) y)
+        {
+            var order = y.Score.CompareTo(x.Score);
+            return order != 0 ? order : y.Ordinal.CompareTo(x.Ordinal);
+        }
     }
 
     /// <summary>The share of the base the direct supporters carry, as the nearest double.</summary>
@@ -180,24 +221,30 @@ public static class CandidateFinder
         return child;
     }
 
-    /// <summary>Items in a group are offered atomically, in first-member order; an impossible group strands nothing else.</summary>
+    /// <summary>
+    /// Items in a group are offered atomically, in first-member order; an impossible group strands
+    /// nothing else. One pass with a group-to-slot map: O(n) instead of a rescan per group. A
+    /// batch's slot is its first member's, and members keep input order.
+    /// </summary>
     public static List<ImmutableArray<ItemInstance>> GroupBatches(IReadOnlyList<ItemInstance> items)
     {
-        var batches = new List<ImmutableArray<ItemInstance>>();
-        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var slots = new List<(ItemInstance? Single, ImmutableArray<ItemInstance>.Builder? Members)>();
+        var groups = new Dictionary<string, ImmutableArray<ItemInstance>.Builder>(StringComparer.Ordinal);
         foreach (var item in items)
         {
             if (item.Item.Group is not { } group)
             {
-                batches.Add([item]);
+                slots.Add((item, null));
                 continue;
             }
-            if (seen.Add(group))
+            if (!groups.TryGetValue(group, out var members))
             {
-                batches.Add([.. items.Where(other => other.Item.Group == group)]);
+                groups[group] = members = ImmutableArray.CreateBuilder<ItemInstance>();
+                slots.Add((null, members));
             }
+            members.Add(item);
         }
-        return batches;
+        return [.. slots.Select(slot => slot.Members is { } members ? members.ToImmutable() : [slot.Single!])];
     }
 
     /// <summary>States reachable by placing every member of a batch, best first, built lazily.</summary>
@@ -359,10 +406,9 @@ public static class CandidateFinder
     }
 
     private static Int128 ProjectedVolume(ContainerState state, ImmutableArray<Placement> placed, ItemInstance item,
-        Candidate candidate, Placement? tentative, bool compressionSensitive, Int128 usable)
+        Point point, Point position, Form form, Placement? tentative, bool compressionSensitive, Int128 usable)
     {
-        var reserve = tentative ?? new Placement(item, candidate.Position, candidate.Rotation, candidate.Dimensions,
-            candidate.Point, candidate.EnvelopeDimensions);
+        var reserve = tentative ?? new Placement(item, position, form.Rotation, form.Physical, point, form.Envelope);
         if (!compressionSensitive)
         {
             return state.UsedVolumeTicks + Nesting.UsedVolumeDelta(placed, reserve);

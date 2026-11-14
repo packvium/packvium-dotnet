@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using Xunit;
 
 namespace Packvium.Tests.Conformance;
@@ -30,7 +31,7 @@ public sealed class ConformanceTests(ITestOutputHelper output)
         {
             directory = directory.Parent;
         }
-        return directory is null ? string.Empty : Path.Combine(directory.FullName, ".corpus", "v1.1.0");
+        return directory is null ? string.Empty : Path.Combine(directory.FullName, ".corpus", "v1.2.0");
     }
 
     [Fact]
@@ -44,6 +45,46 @@ public sealed class ConformanceTests(ITestOutputHelper output)
         var report = CorpusRunner.Run(corpus);
         output.WriteLine(report.Summary());
         Assert.True(report.Count(FixtureOutcome.Failed) == 0, report.Summary());
+    }
+
+    /// <summary>
+    /// The execution-plan run of the tag (<c>conformance/execution/run.py</c>): for every golden
+    /// that is an object with a <c>status</c>, the plan's canonical JSON must be the Python
+    /// reference's byte for byte. <c>conformance/execution_reference.py</c> wrote those bytes from
+    /// the tag's own <c>packvium.execution</c> and refused any plan its schema does not accept,
+    /// so a match is schema-valid too.
+    /// </summary>
+    [Fact]
+    public void EveryGoldenGivesTheReferenceExecutionPlan()
+    {
+        var reference = Path.Combine(CorpusDirectory(), "execution");
+        if (!Directory.Exists(reference))
+        {
+            Assert.Skip(CorpusAbsent(reference));
+        }
+        var golden = Path.Combine(CorpusDirectory(), "conformance", "golden");
+        var empty = new Packvium.Serialization.JsonObject([]);
+        var mismatches = new System.Collections.Generic.List<string>();
+        var (goldens, covered) = (0, 0);
+        foreach (var path in Directory.GetFiles(golden, "*.json").Order(StringComparer.Ordinal))
+        {
+            goldens++;
+            if (Packvium.Serialization.JsonReader.Parse(File.ReadAllBytes(path)) is not Packvium.Serialization.JsonObject result
+                || !result.Contains("status"))
+            {
+                continue;
+            }
+            covered++;
+            var expected = Path.Combine(reference, Path.GetFileName(path));
+            var actual = Packvium.Execution.ExecutionPlan.CanonicalJson(Packvium.Execution.ExecutionPlan.Build(empty, result));
+            if (!File.Exists(expected) || actual != File.ReadAllText(expected))
+            {
+                mismatches.Add(Path.GetFileName(path));
+            }
+        }
+        output.WriteLine($"execution plans: {covered - mismatches.Count} of {covered} byte-identical to the reference "
+                         + $"({goldens} goldens, {Directory.GetFiles(reference, "*.json").Length} schema-valid reference plans)");
+        Assert.True(covered > 0 && mismatches.Count == 0, string.Join(", ", mismatches));
     }
 
     /// <summary>

@@ -90,7 +90,8 @@ public static class RequestReader
             PythonCoercion.RawInt(budget.Get("max_restarts")));
     }
 
-    private static Item ReadItem(JsonObject raw, string unit)
+    /// <summary>One <c>items[]</c> entry, read as <c>serialization._item</c> reads it; the lock layer sizes its reservations with it.</summary>
+    internal static Item ReadItem(JsonObject raw, string unit)
     {
         var rotations = raw.Get("allowed_rotations") is { } authored
             ? PythonCoercion.Iterate(authored).Select(value => Rotations.Parse(StrictString(value))).ToImmutableArray()

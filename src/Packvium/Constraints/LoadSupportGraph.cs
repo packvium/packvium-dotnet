@@ -9,7 +9,9 @@ namespace Packvium.Constraints;
 /// <summary>
 /// Face contact plus exact direct nesting support for load-bearing rules. Nesting candidates are
 /// sorted by item, footprint and height, so only adjacent layers of one column are compared:
-/// O(n log n) plus O(E). Edge and child lists keep ascending index order.
+/// O(n log n) plus O(E). Edge and child lists keep ascending index order. Without nesting the
+/// graph is the face graph, so its edges are read straight off it and extending it by one unit
+/// copies no edge lists.
 /// </summary>
 public sealed class LoadSupportGraph
 {
@@ -18,6 +20,12 @@ public sealed class LoadSupportGraph
     private readonly ContactGraph face;
     private readonly ImmutableArray<LoadUnit> units;
     private readonly bool nested;
+
+    /// <summary>The settled order of the graph this one extends by one unit, when it has one.</summary>
+    private readonly ImmutableArray<int> priorDescending;
+
+    /// <summary>Computed on first use and shared by every reader of this graph; never changes once set.</summary>
+    private ImmutableArray<int> descending;
 
     public LoadSupportGraph(IReadOnlyList<LoadUnit> units, long cellHint = 1)
     {
@@ -31,8 +39,6 @@ public sealed class LoadSupportGraph
         nested = nesting.Count > 0;
         if (!nested)
         {
-            supporters = [.. Enumerable.Range(0, this.units.Length).Select(face.Supporters)];
-            children = [.. Enumerable.Range(0, this.units.Length).Select(face.Children)];
             return;
         }
         var edges = Enumerable.Range(0, this.units.Length).Select(index => face.Supporters(index).ToList()).ToList();
@@ -66,18 +72,64 @@ public sealed class LoadSupportGraph
         children = [.. childLists.Select(list => list.ToImmutableArray())];
     }
 
-    private LoadSupportGraph(ContactGraph face, ImmutableArray<LoadUnit> units)
+    private LoadSupportGraph(ContactGraph face, ImmutableArray<LoadUnit> units, ImmutableArray<int> priorDescending)
     {
         this.face = face;
         this.units = units;
+        this.priorDescending = priorDescending;
         nested = false;
-        supporters = [.. Enumerable.Range(0, units.Length).Select(face.Supporters)];
-        children = [.. Enumerable.Range(0, units.Length).Select(face.Children)];
     }
 
-    public ImmutableArray<ContactEdge> Supporters(int index) => supporters[index];
+    public ImmutableArray<ContactEdge> Supporters(int index) => nested ? supporters[index] : face.Supporters(index);
 
-    public ImmutableArray<int> Children(int index) => children[index];
+    public ImmutableArray<int> Children(int index) => nested ? children[index] : face.Children(index);
+
+    /// <summary>
+    /// Every unit index, top first: by top face, then bottom face, both descending, then index --
+    /// the order loads are propagated down a stack in. A graph extended by one unit derives it
+    /// from its parent's by one binary insertion, O(n), instead of an O(n log n) sort per
+    /// candidate.
+    /// </summary>
+    public ImmutableArray<int> DescendingIndices()
+    {
+        if (!descending.IsDefault)
+        {
+            return descending;
+        }
+        if (priorDescending.IsDefault)
+        {
+            descending = [.. Enumerable.Range(0, units.Length)
+                .OrderBy(index => -units[index].Box.Z2).ThenBy(index => -units[index].Box.Origin.Z).ThenBy(index => index)];
+            return descending;
+        }
+        var added = units.Length - 1;
+        var (low, high) = (0, priorDescending.Length);
+        while (low < high)
+        {
+            var middle = (low + high) / 2;
+            if (TopFirst(added, priorDescending[middle]) < 0)
+            {
+                high = middle;
+            }
+            else
+            {
+                low = middle + 1;
+            }
+        }
+        descending = priorDescending.Insert(low, added);
+        return descending;
+    }
+
+    private int TopFirst(int left, int right)
+    {
+        var (a, b) = (units[left].Box, units[right].Box);
+        var order = b.Z2.CompareTo(a.Z2);
+        if (order == 0)
+        {
+            order = b.Origin.Z.CompareTo(a.Origin.Z);
+        }
+        return order != 0 ? order : left.CompareTo(right);
+    }
 
     /// <summary>
     /// This graph plus one unit at the next index. Nesting falls back to a rebuild: a nesting
@@ -89,7 +141,7 @@ public sealed class LoadSupportGraph
         {
             return new LoadSupportGraph([.. units, unit], cellHint);
         }
-        return new LoadSupportGraph(face.WithBox(unit.Box), units.Add(unit));
+        return new LoadSupportGraph(face.WithBox(unit.Box), units.Add(unit), DescendingIndices());
     }
 
     private static (string?, long?, long, long, long, long) Column(LoadUnit unit) =>

@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Text;
 
 namespace Packvium.Units;
@@ -130,6 +132,9 @@ internal static class PythonText
         }
         return builder.Append(quote).ToString();
     }
+
+    /// <summary><c>repr(list[str])</c>: how a reference message prints a sorted list of names.</summary>
+    public static string ReprList(IEnumerable<string> texts) => $"[{string.Join(", ", texts.Select(Repr))}]";
 
     /// <summary><c>str.isprintable</c> for one code point: not a control, format, surrogate, private, unassigned or separator other than space.</summary>
     private static bool IsPrintable(Rune rune) => Rune.GetUnicodeCategory(rune) switch

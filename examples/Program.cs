@@ -24,6 +24,8 @@ public static class Program
         ["nested"] = Nested.Run,
         ["extensions"] = Extensions.Run,
         ["commerce"] = Commerce.Run,
+        ["execution"] = Execution.Run,
+        ["intelligence"] = Intelligence.Run,
     };
 
     public static int Main(string[] args)

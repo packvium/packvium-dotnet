@@ -68,7 +68,10 @@ public static class Units
         Console.WriteLine();
         Console.WriteLine($"on the wire: {Dict(ResultWriter.Length(UnitLength.Parse("12 3/8 in"), "mm"))} {Dict(ResultWriter.Weight(Weight.Parse("2 3/4 lb"), "g"))}");
 
-        var result = new Packer(PackingConfig.Balanced()).Pack(
+        // An example must not change answer merely because the host was busy. This solve needs
+        // a fraction of the budget below; the generous wall-clock value is only a safety fuse, so
+        // a loaded machine cannot cut the multi-start portfolio short and let a different start win.
+        var result = new Packer(PackingConfig.Balanced(timeLimitMs: 60_000)).Pack(
             [new Item("shelf", Dimensions.Inches("12 3/8", "9 1/2", "3/4"), Weight.Parse("2 3/4 lb"), quantity: 3)],
             [new Container("carton", Dimensions.Inches("13", "10", "4"), maxPayload: Weight.Parse("20 lb"))]);
         Console.WriteLine($"packed {result.PackedItemCount} shelves, {result.Unpacked.Length} left over");

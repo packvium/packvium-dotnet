@@ -21,8 +21,29 @@ public sealed class GridSolver : ISingleContainerSolver
 
     public bool OrderInsensitive => true;
 
-    public static bool Supports(IReadOnlyList<ItemInstance> items) =>
-        items.Count > 0 && items.Select(item => LatticeProfile(item.Item)).Distinct(StringComparer.Ordinal).Count() == 1;
+    public static bool Supports(IReadOnlyList<ItemInstance> items)
+    {
+        if (items.Count == 0)
+        {
+            return false;
+        }
+        var prototype = items[0].Item;
+        var profile = LatticeProfile(prototype);
+        var previous = prototype;
+        foreach (var instance in items)
+        {
+            // Quantities share one immutable Item, so only a different object can bring a
+            // different profile; one mismatch decides, without building the rest.
+            var item = instance.Item;
+            if (!ReferenceEquals(item, prototype) && !ReferenceEquals(item, previous)
+                && !string.Equals(LatticeProfile(item), profile, StringComparison.Ordinal))
+            {
+                return false;
+            }
+            previous = item;
+        }
+        return true;
+    }
 
     public SingleContainerSolution PackOne(Container container, int sequence, IReadOnlyList<ItemInstance> items,
         PackingConfig config, SearchStats stats, Deadline deadline)

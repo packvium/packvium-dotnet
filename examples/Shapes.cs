@@ -77,6 +77,13 @@ public static class Shapes
         "[{\"id\": \"crate\", \"inner_dimensions\": {\"length\": \"" + length + "\", \"width\": \"" + width
         + "\", \"height\": \"" + height + "\"}}]";
 
+    /// <summary>
+    /// An example must not change answer merely because the host was busy. These solves need a
+    /// fraction of the budget; the generous wall-clock value is only a safety fuse, so a loaded
+    /// machine cannot cut the multi-start portfolio short and let a different start win.
+    /// </summary>
+    private const string SafetyFuse = "\"configuration\": {\"time_limit_ms\": 60000}";
+
     private static string Request(string items, string containers) =>
-        "{\"units\": {\"length\": \"mm\"}, \"items\": " + items + ", \"containers\": " + containers + "}";
+        "{\"units\": {\"length\": \"mm\"}, " + SafetyFuse + ", \"items\": " + items + ", \"containers\": " + containers + "}";
 }

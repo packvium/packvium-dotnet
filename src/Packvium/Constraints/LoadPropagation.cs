@@ -20,9 +20,7 @@ public static class LoadPropagation
     {
         graph ??= new LoadSupportGraph(units);
         var loads = new long[units.Count];
-        var descending = Enumerable.Range(0, units.Count)
-            .OrderBy(i => -units[i].Box.Z2).ThenBy(i => -units[i].Box.Origin.Z).ThenBy(i => i);
-        foreach (var upper in descending)
+        foreach (var upper in graph.DescendingIndices())
         {
             var supports = graph.Supporters(upper);
             var totalArea = supports.Aggregate(Int128.Zero, (total, edge) => total + edge.Area);

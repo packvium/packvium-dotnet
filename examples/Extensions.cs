@@ -22,6 +22,13 @@ namespace Packvium.Examples;
 /// </summary>
 public static class Extensions
 {
+    /// <summary>
+    /// An example must not change answer merely because the host was busy. These solves need
+    /// a fraction of the budget; the generous wall-clock value is only a safety fuse, so a
+    /// loaded machine cannot cut the multi-start portfolio short and let a different start win.
+    /// </summary>
+    private const long SafetyFuseMs = 60_000;
+
     /// <summary>Refuses a fragile-tagged item with its base above the limit -- a warehouse rule with no field.</summary>
     private sealed class FragileHeightLimit(Length limit, string tag = "fragile") : IPlacementConstraint
     {
@@ -62,11 +69,11 @@ public static class Extensions
         ];
         Container[] containers = [new("column", Dimensions.Mm("400", "400", "1300"), maxPayload: Weight.Parse("200 kg"), quantity: 1)];
 
-        var unrestricted = new Packer(PackingConfig.Balanced()).Pack(items, containers);
+        var unrestricted = new Packer(PackingConfig.Balanced(timeLimitMs: SafetyFuseMs)).Pack(items, containers);
         var highest = Vases(unrestricted).Max(p => p.Position.Z);
         Console.WriteLine($"without the rule, the highest vase sits at {new Length(highest).DecimalText("mm")} mm");
 
-        var restricted = new Packer(PackingConfig.Balanced(),
+        var restricted = new Packer(PackingConfig.Balanced(timeLimitMs: SafetyFuseMs),
             new ExtensionRegistry([new FragileHeightLimit(Length.Parse("400 mm"))])).Pack(items, containers);
         var heights = Vases(restricted).Select(p => new Length(p.Position.Z).DecimalText("mm")).Order(StringComparer.Ordinal);
         Console.WriteLine($"with a 400mm limit, vases sit at {Python.List(heights)} and {restricted.Unpacked.Length} were left behind");
@@ -86,7 +93,7 @@ public static class Extensions
         Console.WriteLine();
         foreach (var (label, scorer) in (ValueTuple<string, ISolutionScorer?>[])[("default", null), ("evenly loaded", new EvenlyLoadedContainers())])
         {
-            var result = new Packer(PackingConfig.Balanced(), solutionScorer: scorer).Pack(lopsided, twoBoxes);
+            var result = new Packer(PackingConfig.Balanced(timeLimitMs: SafetyFuseMs), solutionScorer: scorer).Pack(lopsided, twoBoxes);
             var contents = result.Containers.Select(c => Python.List(c.Placements.Select(p => p.Instance.Item.Id).Order(StringComparer.Ordinal)));
             var weights = result.Containers.Select(c => c.PayloadWeight.DecimalText("kg") + " kg");
             Console.WriteLine($"{label,15}: [{string.Join(", ", contents)}]  ->  {Python.List(weights)}");

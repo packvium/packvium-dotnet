@@ -20,11 +20,18 @@ public enum FixtureOutcome
     Validated,
 }
 
-public sealed record FixtureResult(string Name, FixtureOutcome Outcome, string Detail);
+/// <param name="RankedAlternatives">The live result carried a non-empty <c>alternatives</c> list that passed its invariants.</param>
+public sealed record FixtureResult(string Name, FixtureOutcome Outcome, string Detail, bool RankedAlternatives = false);
 
 public sealed record CorpusReport(string Corpus, ImmutableArray<FixtureResult> Results)
 {
     public int Count(FixtureOutcome outcome) => Results.Count(result => result.Outcome == outcome);
+
+    /// <summary>
+    /// Counted rather than assumed, as the tag's runner counts it: the goldens store the
+    /// projection and carry no <c>alternatives</c>, so only the live results can be checked.
+    /// </summary>
+    public int RankedAlternativeLists => Results.Count(result => result.RankedAlternatives);
 
     public string Summary()
     {
@@ -39,6 +46,7 @@ public sealed record CorpusReport(string Corpus, ImmutableArray<FixtureResult> R
             $"corpus {Corpus}",
             $"passed {Count(FixtureOutcome.Passed)}, failed {Count(FixtureOutcome.Failed)}, "
             + $"pending {Count(FixtureOutcome.Pending)}, validated without golden {Count(FixtureOutcome.Validated)}",
+            $"alternatives invariants passed: {RankedAlternativeLists} non-empty ranked list(s) checked",
         }.Concat(pending).Concat(failures));
     }
 }
@@ -100,18 +108,25 @@ public static class CorpusRunner
         var name = Path.GetFileName(fixture);
         try
         {
-            var result = JsonApi.PackFromJson(JsonReader.Parse(File.ReadAllBytes(fixture)));
+            var request = (JsonObject)JsonReader.Parse(File.ReadAllBytes(fixture));
+            var result = JsonApi.PackFromJson(request);
+            var problems = AlternativesInvariants.Problems(request, result);
+            if (problems.Count > 0)
+            {
+                return new FixtureResult(name, FixtureOutcome.Failed, string.Join("; ", problems));
+            }
+            var ranked = result.Get("alternatives") is JsonArray { Items.IsEmpty: false };
             if (!File.Exists(goldenPath))
             {
                 var status = ((JsonString)result.Require("status")).Value;
                 return status == "invalid_result"
                     ? new FixtureResult(name, FixtureOutcome.Failed, "the port's own validator refused its result")
-                    : new FixtureResult(name, FixtureOutcome.Validated, status);
+                    : new FixtureResult(name, FixtureOutcome.Validated, status, ranked);
             }
             var actual = SemanticResult.Canonicalize(SemanticResult.Project(result)) + "\n";
             var expected = File.ReadAllText(goldenPath);
             return actual == expected
-                ? new FixtureResult(name, FixtureOutcome.Passed, string.Empty)
+                ? new FixtureResult(name, FixtureOutcome.Passed, string.Empty, ranked)
                 : new FixtureResult(name, FixtureOutcome.Failed, FirstDifference(expected, actual));
         }
         catch (NotYetPortedException pending)

@@ -23,7 +23,10 @@ public static class Basic
 {
     public static void Run()
     {
-        var result = new Packer(PackingConfig.Balanced()).Pack(
+        // An example must not change answer merely because the host was busy. This solve needs
+        // a fraction of the budget below; the generous wall-clock value is only a safety fuse, so
+        // a loaded machine cannot cut the multi-start portfolio short and let a different start win.
+        var result = new Packer(PackingConfig.Balanced(timeLimitMs: 60_000)).Pack(
             [
                 new Item("book", Dimensions.Mm("210", "140", "30"), Weight.Parse("450 g"), quantity: 4),
                 new Item("mug", Dimensions.Inches("4", "4", "5"), Weight.Parse("12 oz"), quantity: 2, keepUpright: true),
