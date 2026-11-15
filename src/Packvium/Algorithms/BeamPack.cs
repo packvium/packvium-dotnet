@@ -100,6 +100,8 @@ public static class BeamPack
         long nodes = 0;
         List<Node> beam = [new(new ContainerState(container, sequence), [])];
         var incumbent = GreedyRollout(container, sequence, batches, config, constraints, stats, deadline);
+        // Kept beside the incumbent, so each expansion costs one key, not two.
+        var incumbentKey = NodeKey(incumbent, []);
         for (var position = 0; position < batches.Count; position++)
         {
             var batch = batches[position];
@@ -124,9 +126,11 @@ public static class BeamPack
             foreach (var expansion in expansions)
             {
                 var candidate = new Node(expansion.State, [.. expansion.Unplaced, .. future]);
-                if (NodeKey(candidate, []) < NodeKey(incumbent, []))
+                var candidateKey = NodeKey(candidate, []);
+                if (candidateKey < incumbentKey)
                 {
                     incumbent = candidate;
+                    incumbentKey = candidateKey;
                 }
             }
             if (expansions.Count == 0)
@@ -140,7 +144,7 @@ public static class BeamPack
             }
         }
         var completed = beam.Count > 0 ? beam.MinBy(node => NodeKey(node, []))! : incumbent;
-        var chosen = NodeKey(incumbent, []) < NodeKey(completed, []) ? incumbent : completed;
+        var chosen = incumbentKey < NodeKey(completed, []) ? incumbent : completed;
         return new SingleContainerSolution(chosen.State, chosen.Unplaced);
     }
 

@@ -157,7 +157,7 @@ public static class Pareto
     /// <summary>
     /// One report per distinct profile, sorted by profile name in code-point order. Every axis
     /// needs an explicit direction: guessing that runtime is higher-is-better would silently
-    /// invert the report. O(p * c^2 * axes) for c candidates in a profile.
+    /// invert the report. O(c log c) per profile of c candidates on two axes, O(c^2 * axes) otherwise.
     /// </summary>
     public static ImmutableArray<ProfileReport> GenerateReport(IEnumerable<CandidateResult> candidates,
         IReadOnlyDictionary<string, bool> higherIsBetter)
@@ -203,18 +203,61 @@ public static class Pareto
         }
     }
 
+    /// <summary>
+    /// The non-dominated engines and the rest. Two axes, the common case, take an
+    /// O(c log c) sweep; any other count, or a candidate missing an axis (which
+    /// <see cref="Dominates"/> refuses by name), takes the O(c^2 * axes) pairwise comparison.
+    /// Both give the same sets.
+    /// </summary>
     private static (ImmutableArray<string> Optimal, ImmutableArray<string> Dominated) Frontier(
         List<CandidateResult> candidates, IReadOnlyDictionary<string, bool> higherIsBetter)
     {
-        var optimal = new List<string>();
-        var dominated = new List<string>();
-        foreach (var candidate in candidates)
-        {
-            var isDominated = candidates.Any(other =>
-                !ReferenceEquals(other, candidate) && Dominates(other.Metrics, candidate.Metrics, higherIsBetter));
-            (isDominated ? dominated : optimal).Add(candidate.Engine);
-        }
+        var axes = higherIsBetter.ToList();
+        var swept = axes.Count == 2 && candidates.Count >= 2
+                    && candidates.All(candidate => axes.All(axis => candidate.Metrics.ContainsKey(axis.Key)));
+        var isOptimal = swept
+            ? TwoAxisFrontier([.. candidates.Select(candidate => (Oriented(candidate, axes[0]), Oriented(candidate, axes[1])))])
+            : PairwiseFrontier(candidates, higherIsBetter);
+        var optimal = candidates.Where((_, index) => isOptimal[index]).Select(candidate => candidate.Engine);
+        var dominated = candidates.Where((_, index) => !isOptimal[index]).Select(candidate => candidate.Engine);
         return ([.. optimal.Order(CodePointComparer.Instance)], [.. dominated.Order(CodePointComparer.Instance)]);
+    }
+
+    private static bool[] PairwiseFrontier(List<CandidateResult> candidates, IReadOnlyDictionary<string, bool> higherIsBetter) =>
+        [.. candidates.Select(candidate => !candidates.Any(other =>
+            !ReferenceEquals(other, candidate) && Dominates(other.Metrics, candidate.Metrics, higherIsBetter)))];
+
+    /// <summary>A metric turned so that lower is better on every axis.</summary>
+    private static double Oriented(CandidateResult candidate, KeyValuePair<string, bool> axis) =>
+        axis.Value ? -candidate.Metrics[axis.Key] : candidate.Metrics[axis.Key];
+
+    /// <summary>
+    /// Sorted by (x, y), a point is dominated unless its y is below every y seen at a smaller x,
+    /// and, among points sharing its x, it has the smallest y. Equal points dominate neither.
+    /// </summary>
+    private static bool[] TwoAxisFrontier(List<(double X, double Y)> vectors)
+    {
+        var ordered = Enumerable.Range(0, vectors.Count).OrderBy(index => vectors[index].X)
+            .ThenBy(index => vectors[index].Y).ToList();
+        var optimal = new bool[vectors.Count];
+        double? bestY = null;
+        var position = 0;
+        while (position < ordered.Count)
+        {
+            var (x, y) = vectors[ordered[position]];
+            var survives = bestY is not { } best || y < best;
+            var end = position;
+            for (; end < ordered.Count && vectors[ordered[end]].X == x; end++)
+            {
+                optimal[ordered[end]] = survives && vectors[ordered[end]].Y == y;
+            }
+            if (survives)
+            {
+                bestY = y;
+            }
+            position = end;
+        }
+        return optimal;
     }
 }
 

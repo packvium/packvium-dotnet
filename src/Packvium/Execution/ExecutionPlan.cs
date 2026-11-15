@@ -89,11 +89,13 @@ public static class ExecutionPlan
     }
 
     /// <summary>
-    /// The one byte-comparable spelling of a plan: keys sorted by code point at every depth,
-    /// lists in order, compact separators, non-ASCII unescaped -- <c>json.dumps(plan,
-    /// sort_keys=True, separators=(",", ":"), ensure_ascii=False)</c>.
+    /// The one byte-comparable spelling of a plan: RFC 8785, shared with the operational
+    /// artifact (<see cref="CanonicalJsonWriter"/>). Until 1.3.0 this was <c>json.dumps(plan,
+    /// sort_keys=True, ensure_ascii=False)</c>, the same bytes for every plan an engine emits but
+    /// not for a key outside the Basic Multilingual Plane or a float, where engines disagreed.
+    /// Throws <see cref="CanonicalJsonException"/> for a value with no canonical spelling.
     /// </summary>
-    public static string CanonicalJson(JsonObject plan) => PythonJson.Dumps(plan, sortKeys: true);
+    public static string CanonicalJson(JsonObject plan) => CanonicalJsonWriter.Write(plan);
 
     /// <summary>
     /// A reference two languages agree on, for one placement in one container. The container is

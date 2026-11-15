@@ -251,14 +251,31 @@ public sealed class CarrierRegistry
             ? history
             : throw new TariffNotFoundException($"no tariff registered for {carrierId}/{serviceId}");
 
-    public Tariff Tariff(string carrierId, string serviceId, BigInteger version) =>
-        Versions(carrierId, serviceId).FirstOrDefault(tariff => tariff.Version == version)
-        ?? throw new TariffNotFoundException($"{carrierId}/{serviceId} has no version {version}");
+    /// <summary>One pinned version in O(1): a version's number is its 1-based position in the history.</summary>
+    public Tariff Tariff(string carrierId, string serviceId, BigInteger version)
+    {
+        var history = Versions(carrierId, serviceId);
+        return version >= 1 && version <= history.Count
+            ? history[(int)version - 1]
+            : throw new TariffNotFoundException($"{carrierId}/{serviceId} has no version {version}");
+    }
 
-    /// <summary>The highest effective_at not after the instant, ties to the later-published version.</summary>
-    public Tariff EffectiveTariff(string carrierId, string serviceId, BigInteger asOf) =>
-        Versions(carrierId, serviceId).Where(tariff => tariff.EffectiveAt <= asOf)
-            .OrderByDescending(tariff => tariff.EffectiveAt).ThenByDescending(tariff => tariff.Version)
-            .FirstOrDefault()
-        ?? throw new TariffNotFoundException($"{carrierId}/{serviceId} has no tariff version effective as of {asOf}");
+    /// <summary>
+    /// The highest effective_at not after the instant, ties to the later-published version, in
+    /// one O(h) pass over the history.
+    /// </summary>
+    public Tariff EffectiveTariff(string carrierId, string serviceId, BigInteger asOf)
+    {
+        Tariff? winner = null;
+        foreach (var candidate in Versions(carrierId, serviceId))
+        {
+            if (candidate.EffectiveAt <= asOf && (winner is null || candidate.EffectiveAt > winner.EffectiveAt
+                                                  || (candidate.EffectiveAt == winner.EffectiveAt && candidate.Version > winner.Version)))
+            {
+                winner = candidate;
+            }
+        }
+        return winner ?? throw new TariffNotFoundException(
+            $"{carrierId}/{serviceId} has no tariff version effective as of {asOf}");
+    }
 }

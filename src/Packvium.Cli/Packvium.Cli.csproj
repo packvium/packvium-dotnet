@@ -2,10 +2,13 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <RootNamespace>Packvium.Cli</RootNamespace>
-    <Version>1.2.0</Version>
-    <!-- Not packed for 1.2.0: it drives the conformance harness and is built from source. -->
+    <Version>1.3.0</Version>
+    <!-- Not packed for 1.3.0: it drives the conformance harness and is built from source. -->
     <IsPackable>false</IsPackable>
   </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Packvium.Tests" />
+  </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Packvium/Packvium.csproj" />
   </ItemGroup>

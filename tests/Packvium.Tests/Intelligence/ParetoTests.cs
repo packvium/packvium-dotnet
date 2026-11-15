@@ -196,6 +196,31 @@ public sealed class ParetoTests
         Assert.Throws<NonFiniteMetricException>(() =>
             Pareto.GenerateReport([Candidate("python", 10, 0.7), Candidate("broken", double.NaN, double.NaN)], Directions));
 
+    /// <summary>
+    /// Two axes take the sorted sweep, three the pairwise comparison. A third axis on which every
+    /// candidate is equal changes no dominance, so on a grid full of ties, duplicates and signed
+    /// zeros both must give the same frontier.
+    /// </summary>
+    [Fact]
+    public void TheTwoAxisSweepFindsThePairwiseFrontier()
+    {
+        double[] costs = [3, 1, 2, 1, 0.0, -0.0, 3, 2];
+        double[] utilisations = [0.5, 0.2, 0.5, 0.2, 0.1, 0.4, 0.9, 0.9];
+        var candidates = costs.Select((cost, index) => new CandidateResult("balanced", $"engine-{index}",
+            new Dictionary<string, double>(StringComparer.Ordinal)
+            {
+                ["cost"] = cost,
+                ["utilisation"] = utilisations[index],
+                ["constant"] = 1,
+            })).ToList();
+        var withConstant = new Dictionary<string, bool>(Directions, StringComparer.Ordinal) { ["constant"] = true };
+        var swept = Pareto.GenerateReport(candidates, Directions).Single();
+        var pairwise = Pareto.GenerateReport(candidates, withConstant).Single();
+        Assert.Equal(pairwise.ParetoOptimal, swept.ParetoOptimal);
+        Assert.Equal(pairwise.Dominated, swept.Dominated);
+        Assert.Equal(["engine-5", "engine-7"], swept.ParetoOptimal);
+    }
+
     // ------------------------------------------------ the report type guards its own claims
 
     [Fact]

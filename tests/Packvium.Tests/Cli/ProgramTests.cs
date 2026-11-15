@@ -1,5 +1,6 @@
 using System.IO;
 using Packvium.Cli;
+using Packvium.Serialization;
 using Xunit;
 
 namespace Packvium.Tests.Cli;
@@ -50,4 +51,28 @@ public sealed class ProgramTests
 
     [Fact]
     public void ExitsWithTwoOnAnUnknownArgument() => Assert.Equal(2, Program.Main(["--bogus"]));
+
+    /// <summary>The artifact probe answers a refusal as an outcome with its code and no exports, as <c>probe.php</c> does.</summary>
+    [Fact]
+    public void TheArtifactProbeAnswersARefusalWithItsCode()
+    {
+        var directory = Directory.CreateTempSubdirectory();
+        try
+        {
+            File.WriteAllText(Path.Combine(directory.FullName, "foreign.json"), """{"format":"packvium-operational-artifact/v2"}""");
+            File.WriteAllText(Path.Combine(directory.FullName, "request.json"), "[]");
+            File.WriteAllText(Path.Combine(directory.FullName, "result.json"), Request);
+            var export = (JsonObject)JsonReader.Parse("""{"name":"x","kind":"export","artifact_path":"foreign.json"}""");
+            var build = (JsonObject)JsonReader.Parse(
+                """{"name":"y","kind":"build","request_path":"request.json","result_path":"result.json","loading_orders":{"0":[0]}}""");
+            Assert.Equal("""{"csv":null,"error":"unknown_format","html":null,"json":null}""",
+                CanonicalJsonWriter.Write(ArtifactsCommand.Outcome(export, directory.FullName)));
+            Assert.Equal("""{"csv":null,"error":"invalid_request","html":null,"json":null}""",
+                CanonicalJsonWriter.Write(ArtifactsCommand.Outcome(build, directory.FullName)));
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
 }

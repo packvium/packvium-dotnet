@@ -31,7 +31,7 @@ public sealed class ConformanceTests(ITestOutputHelper output)
         {
             directory = directory.Parent;
         }
-        return directory is null ? string.Empty : Path.Combine(directory.FullName, ".corpus", "v1.2.0");
+        return directory is null ? string.Empty : Path.Combine(directory.FullName, ".corpus", "v1.3.0");
     }
 
     [Fact]

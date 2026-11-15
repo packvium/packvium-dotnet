@@ -4,6 +4,43 @@ What changed in `Packvium` on NuGet, release by release. The format follows
 [Keep a Changelog](https://keepachangelog.com/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0]
+
+Matches Packvium 1.3.0: all 398 packing fixtures of the 1.3.0 conformance corpus, byte for
+byte in canonical form, all 55 commerce cases, the execution plan of every golden result, the
+six operator-lock scenarios, and all 419 operational-artifact cases of the release. Packing
+results are unchanged from 1.2.0.
+
+### Added
+
+- **Operational artifacts.** `Packvium.Artifacts.OperationalArtifact.Build` wraps a result's
+  execution plan, unchanged, with what a warehouse or transport system needs to act without an
+  engine: box and container geometry in ticks, the result's display values, and provenance
+  (the request itself, the catalog versions used, the solver, and whether a replay can be
+  exact). `ArtifactExports.Json`, `Csv` and `WorkOrderHtml` export it as canonical JSON, an
+  RFC 4180 CSV and a self-contained HTML work order. Every export is the reference's bytes on
+  every case of the release's artifact run; anything an artifact cannot carry throws
+  `OperationalArtifactException` with the error code every engine reports.
+- **RFC 8785 canonical JSON.** `Packvium.Serialization.CanonicalJsonWriter` writes keys in
+  UTF-16 order and numbers as JavaScript writes them, and refuses a number beyond 2^53 - 1 or a
+  lone surrogate with `CanonicalJsonException`.
+- **Safe loading and removal orders.** `RouteSequence.SafeLoadingOrder` and
+  `SafeRemovalOrder` compute an order boxes can be loaded or unloaded in without moving another
+  box first, and `ReplayLoadingOrder` and `ReplayRemovalOrder` check one you supply.
+- **An `Artifacts` example**, checked against the output of the matching Python example with
+  no line allowed to differ.
+
+### Changed
+
+- **`ExecutionPlan.CanonicalJson` is RFC 8785.** It was `json.dumps(sort_keys=True)`, which gives
+  the same bytes for every plan an engine emits, so no golden plan changed; a key outside the
+  Basic Multilingual Plane or a float now has the spelling every engine shares.
+- **The JSON reader keeps an escaped lone surrogate**, as Python's `json` does, so the canonical
+  writer refuses it by name instead of the reader failing first.
+- **Lookups do less work.** A pinned catalog or tariff version resolves in O(1), an effective
+  date in one pass over the history, a two-axis Pareto report in O(n log n), and the beam keeps
+  its incumbent's sort key instead of recomputing it. Results are unchanged.
+
 ## [1.2.0]
 
 Matches Packvium 1.2.0: all 398 packing fixtures of the 1.2.0 conformance corpus, byte for

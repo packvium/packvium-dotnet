@@ -39,7 +39,7 @@ public static class PythonFloat
     }
 
     /// <summary>The shortest round-trip digits and the decimal exponent of the first one.</summary>
-    private static (bool Negative, string Digits, int Exponent) ShortestDigits(double value)
+    internal static (bool Negative, string Digits, int Exponent) ShortestDigits(double value)
     {
         var roundTrip = value.ToString("R", CultureInfo.InvariantCulture);
         var negative = roundTrip.StartsWith('-') || (value == 0 && double.IsNegative(value));

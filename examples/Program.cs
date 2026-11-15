@@ -26,6 +26,7 @@ public static class Program
         ["commerce"] = Commerce.Run,
         ["execution"] = Execution.Run,
         ["intelligence"] = Intelligence.Run,
+        ["artifacts"] = Artifacts.Run,
     };
 
     public static int Main(string[] args)

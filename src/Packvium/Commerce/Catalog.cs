@@ -197,7 +197,8 @@ public sealed record ResolvedCatalog(CatalogReference Reference, CatalogSnapshot
 
 /// <summary>
 /// Per-catalog append-only publication history: the one place catalog state changes, and only
-/// by appending. Resolution is O(h) in the history length.
+/// by appending. A pinned version resolves in O(1), an effective date in one O(h) pass over the
+/// history.
 /// </summary>
 public sealed class CatalogRegistry
 {
@@ -272,15 +273,23 @@ public sealed class CatalogRegistry
                 ? versions[0]
                 : throw new CatalogVersionNotFoundException($"catalog {PythonText.Repr(CatalogId)} has no published versions");
         }
-        // A same-instant correction or rollback wins over what it corrects: ties go to the higher number.
-        return versions.Where(candidate => candidate.EffectiveAt <= instant)
-                   .OrderByDescending(candidate => candidate.EffectiveAt).ThenByDescending(candidate => candidate.Number)
-                   .FirstOrDefault()
-               ?? throw new NoEffectiveCatalogVersionException(
-                   $"catalog {PythonText.Repr(CatalogId)} has no version effective as of {instant}");
+        // One pass. A same-instant correction or rollback wins over what it corrects: the history
+        // is in ascending number order, so `>=` hands a tie to the higher number.
+        CatalogVersion? target = null;
+        foreach (var candidate in versions)
+        {
+            if (candidate.EffectiveAt <= instant && (target is null || candidate.EffectiveAt >= target.EffectiveAt))
+            {
+                target = candidate;
+            }
+        }
+        return target ?? throw new NoEffectiveCatalogVersionException(
+            $"catalog {PythonText.Repr(CatalogId)} has no version effective as of {instant}");
     }
 
+    /// <summary>O(1): a version's number is its 1-based position in the history.</summary>
     private CatalogVersion Version(BigInteger number) =>
-        versions.FirstOrDefault(candidate => candidate.Number == number)
-        ?? throw new CatalogVersionNotFoundException($"catalog {PythonText.Repr(CatalogId)} has no version {number}");
+        number >= 1 && number <= versions.Count
+            ? versions[(int)number - 1]
+            : throw new CatalogVersionNotFoundException($"catalog {PythonText.Repr(CatalogId)} has no version {number}");
 }

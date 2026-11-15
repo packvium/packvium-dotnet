@@ -8,9 +8,9 @@ binding over another one. It accepts the same requests and returns the same resu
 Python and PHP engines. Its tests run the shared conformance corpus, and every result
 matches the reference result byte for byte.
 
-> **Version 1.2.0.** This release corresponds to Packvium 1.2.0 in the other languages, and
-> its tests run the 1.2.0 conformance corpus: every packing fixture, every commerce case,
-> every execution plan and every operator-lock scenario.
+> **Version 1.3.0.** This release corresponds to Packvium 1.3.0 in the other languages, and
+> its tests run the 1.3.0 conformance corpus: every packing fixture, every commerce case,
+> every execution plan, every operator-lock scenario and every operational-artifact case.
 > Field names, status codes and the objective vector stay the same for all of 1.x.
 > Read [GUARANTEES.md](https://github.com/packvium/packvium-python/blob/main/docs/GUARANTEES.md)
 > before relying on a result.
@@ -24,6 +24,7 @@ matches the reference result byte for byte.
 - [Constraints and objectives](#constraints-and-objectives)
 - [Commerce](#commerce)
 - [Execution plans](#execution-plans)
+- [Operational artifacts](#operational-artifacts)
 - [Operator locks](#operator-locks)
 - [Scenario comparison, recommendations and holdout replay](#scenario-comparison-recommendations-and-holdout-replay)
 - [Command line](#command-line)
@@ -37,7 +38,7 @@ matches the reference result byte for byte.
 ## Install
 
 ```bash
-dotnet add package Packvium --version 1.2.0
+dotnet add package Packvium --version 1.3.0
 ```
 
 The package targets **.NET 8** (`net8.0`) and **.NET 10** (`net10.0`), and has no runtime
@@ -227,6 +228,44 @@ A loading order must be a permutation of the container's steps; anything else, o
 that is not a result, throws `ExecutionPlanException`. Each alternative carries the first
 score index at which it differs from the chosen answer.
 
+`CanonicalJson` is RFC 8785: keys in UTF-16 order, numbers as JavaScript writes them, no
+whitespace. A value that has no such spelling (a number beyond 2^53 - 1, a lone surrogate)
+throws `CanonicalJsonException`.
+
+## Operational artifacts
+
+An operational artifact is the one document a warehouse or transport system needs to act
+without calling an engine. It wraps the execution plan unchanged and adds geometry in ticks,
+the result's display values, and provenance: the request itself, the catalog versions used,
+the solver, and whether a replay can be exact. `ArtifactExports` turns it into canonical JSON,
+an RFC 4180 CSV with one row per step and one per unpacked item, and a self-contained HTML work
+order to print. Building and exporting call no solver, renderer or clock, and every Packvium
+engine emits the same bytes.
+
+```csharp
+using Packvium.Artifacts;
+using Packvium.Serialization;
+
+var request = (JsonObject)JsonReader.Parse(requestJson);
+var result = JsonApi.PackFromJson(request);
+var orders = new Dictionary<int, IReadOnlyList<int>> { [0] = loadingOrder };   // optional
+
+JsonObject artifact = OperationalArtifact.Build(request, result, orders);
+string json = ArtifactExports.Json(artifact);            // RFC 8785, the bytes every engine builds
+string csv = ArtifactExports.Csv(artifact);              // CRLF rows, quoted only where needed
+string html = ArtifactExports.WorkOrderHtml(artifact);   // no script, no external resource
+
+JsonValue stored = OperationalArtifact.Parse(json);      // a stored artifact exports the same way
+```
+
+`RouteSequence.SafeLoadingOrder` in `Packvium.Validation` computes a loading order from the
+result's boxes; the artifact never invents one. Anything an artifact cannot carry throws
+`OperationalArtifactException`, whose `Code` is the one every engine reports: `invalid_request`,
+`invalid_result`, `invalid_plan_input`, `mixed_units`, `number_out_of_range`, `invalid_string`,
+`invalid_value`, `unknown_format` or `invalid_json`. An export refuses a document of another
+format by name, and a value with more than one spelling across languages (a boolean or a float
+in a printed field) instead of guessing.
+
 ## Operator locks
 
 An operator who is standing at the dock can pin a placement: *this printer stays here*.
@@ -325,9 +364,12 @@ echo '{"items":[{"id":"box","quantity":8,"dimensions":{"length":"50","width":"50
 way and prints the canonical result document. A malformed case exits 1 with `input error:` on
 standard error. A rejection is a normal answer and exits 0.
 
+`Packvium.Cli artifacts` is the batch probe of the release's artifact conformance run: a JSON
+list of cases on standard input, one JSON line per case on standard output.
+
 ## Examples
 
-[`examples/`](https://github.com/packvium/packvium-dotnet/tree/main/examples) has eleven
+[`examples/`](https://github.com/packvium/packvium-dotnet/tree/main/examples) has twelve
 examples, one file each, that you can read from top to bottom. Run one by name, or all of
 them in turn:
 
@@ -354,11 +396,13 @@ have failed you.
 | [`Extensions.cs`](https://github.com/packvium/packvium-dotnet/blob/main/examples/Extensions.cs) | `-- extensions` | A rule the request has no field for, a ranking of your own, and what you give up by writing them. |
 | [`Execution.cs`](https://github.com/packvium/packvium-dotnet/blob/main/examples/Execution.cs) | `-- execution` | A result turned into a work order: facts kept apart from screen text, a step order that is supplied or honestly absent, the same bytes in every engine, and an operator lock that is honoured, refused, or rejected as a contradiction. |
 | [`Intelligence.cs`](https://github.com/packvium/packvium-dotnet/blob/main/examples/Intelligence.cs) | `-- intelligence` | Prove a carton change is better before publishing it: two scenarios compared order by order, a proposal or an explicit refusal to make one, and a replay on history the proposal has never seen. |
+| [`Artifacts.cs`](https://github.com/packvium/packvium-dotnet/blob/main/examples/Artifacts.cs) | `-- artifacts` | Hand a result to a warehouse system with no engine: one document with the request and solver inside, a CSV to import, a work order to print, and a refusal of a format it does not know. |
 
 The test suite runs every example and compares its output with what the Python example of
-the same release prints. Six lines are allowed to differ because they are about the language
-rather than the packing: two name a file or a command, three are how each language spells
-null, and one shows a Python-only refusal that the .NET example omits.
+the same release prints. The only lines allowed to differ are listed in the test's
+`LanguageLines` map, because they are about the language rather than the packing: a file or
+command name, how each language spells null, a Python-only refusal that the .NET example
+omits, and section 4 of `execution`, which speaks for this engine rather than for four.
 
 ## Determinism
 
@@ -382,13 +426,15 @@ The guarantees are the same as in every Packvium engine, and
 [GUARANTEES.md](https://github.com/packvium/packvium-python/blob/main/docs/GUARANTEES.md) states
 them. This port adds the following:
 
-- **Every corpus case passes.** All 398 packing fixtures of the 1.2.0 conformance corpus match
+- **Every corpus case passes.** All 398 packing fixtures of the 1.3.0 conformance corpus match
   the reference engine's canonical result byte for byte, all 55 commerce cases pass the
   release's own commerce harness, the execution plan of every one of the 398 golden results is
-  byte-identical to the reference adapter's, and all six operator-lock scenarios of the release
-  pass.
+  byte-identical to the reference adapter's, all six operator-lock scenarios of the release
+  pass, and all 419 operational-artifact cases (398 results and 21 edge cases) give the
+  reference's JSON, CSV and HTML byte for byte, or its error code.
 - **Conformance is checked by the release's own harness.** The command-line program is driven
-  through that harness, and the reference's independent result validator accepts every result.
+  through that harness, the reference's independent result validator accepts every result, and
+  the release's artifact schema and reference consumer accept every artifact.
 
 Full conformance runs in the Packvium suite repository, which holds the shared corpus. In this
 repository, `dotnet test` runs the unit tests, the CLI tests and every example against the
@@ -411,7 +457,7 @@ conformance corpus reaches:
 ## Versioning
 
 The package follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and each
-version matches the Packvium release of the same number: 1.2.0 here passes the 1.2.0
+version matches the Packvium release of the same number: 1.3.0 here passes the 1.3.0
 conformance corpus. The request and result formats, status codes and the objective vector are
 frozen for all of 1.x. What changed in each release is in the
 [changelog](https://github.com/packvium/packvium-dotnet/blob/main/CHANGELOG.md).
