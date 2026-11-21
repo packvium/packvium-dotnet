@@ -6,15 +6,19 @@ namespace Packvium.Serialization;
 
 /// <summary>
 /// <c>Length.parse</c> / <c>Weight.parse</c> over a raw JSON measure: an integer, a string that may
-/// carry its own unit, or <c>{"value": ..., "unit": ...}</c>. A bare float is refused, as the
-/// reference engine refuses it.
+/// carry its own unit, or <c>{"value": ..., "unit": ...}</c>. A bare float is refused unless it
+/// is integral, as the reference engine refuses it.
 /// </summary>
 internal static class Measures
 {
     public static Length Length(JsonValue raw, string defaultUnit) => raw switch
     {
         JsonObject measure => Units.Length.Of(InnerValue(measure), MeasureUnit(measure, defaultUnit)),
-        JsonFloat => throw new ArgumentException("float length input is intentionally rejected; use a decimal string"),
+        // A fraction in binary floating point is not the decimal the caller wrote; an integral
+        // float is exact, and JavaScript cannot send anything else for `100`.
+        JsonFloat number when !double.IsInteger(number.Value) =>
+            throw new ArgumentException("float length input is intentionally rejected; use a decimal string"),
+        JsonFloat number => Units.Length.Of(new System.Numerics.BigInteger(number.Value), defaultUnit),
         JsonString text => Units.Length.Parse(text.Value, defaultUnit),
         _ => Units.Length.Of(InnerValue(raw), defaultUnit),
     };
@@ -22,7 +26,9 @@ internal static class Measures
     public static Weight Weight(JsonValue raw, string defaultUnit = "g") => raw switch
     {
         JsonObject measure => Units.Weight.Of(InnerValue(measure), MeasureUnit(measure, defaultUnit)),
-        JsonFloat => throw new ArgumentException("float weight input is intentionally rejected; use a decimal string"),
+        JsonFloat number when !double.IsInteger(number.Value) =>
+            throw new ArgumentException("float weight input is intentionally rejected; use a decimal string"),
+        JsonFloat number => Units.Weight.Of(Rational.Of(new System.Numerics.BigInteger(number.Value)), defaultUnit),
         JsonString text => Units.Weight.Parse(text.Value, defaultUnit),
         _ => Units.Weight.Of(InnerValue(raw), defaultUnit),
     };

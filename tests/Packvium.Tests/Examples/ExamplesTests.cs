@@ -75,6 +75,11 @@ public sealed partial class ExamplesTests
             ("  met. `None` is the whole answer: there is no low-confidence proposal to weigh.",
              "  met. `null` is the whole answer: there is no low-confidence proposal to weigh."),
         ],
+        ["revisions"] =
+        [
+            ("  revision 0, parent None",
+             "  revision 0, parent null"),
+        ],
     };
 
     public static TheoryData<string> Names => [.. Program.Examples.Keys];

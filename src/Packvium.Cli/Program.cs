@@ -12,7 +12,7 @@ namespace Packvium.Cli;
 /// </summary>
 public static class Program
 {
-    private const string Usage = "usage: packvium [-h] [-o OUTPUT] [input] | packvium commerce | packvium artifacts";
+    private const string Usage = "usage: packvium [-h] [-o OUTPUT] [input] | packvium commerce | packvium artifacts | packvium revisions";
 
     internal static readonly UTF8Encoding Utf8 = new(encoderShouldEmitUTF8Identifier: false);
 
@@ -25,6 +25,10 @@ public static class Program
         if (args is ["artifacts"])
         {
             return ArtifactsCommand.Run();
+        }
+        if (args is ["revisions"])
+        {
+            return RevisionsCommand.Run();
         }
         if (Arguments.Parse(args) is not { } arguments)
         {

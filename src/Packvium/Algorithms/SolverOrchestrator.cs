@@ -41,15 +41,21 @@ public sealed class SolverOrchestrator(
 
     private sealed record Start(ISingleContainerSolver Solver, string OrderName, ImmutableArray<ItemInstance> Order);
 
+    /// <summary>
+    /// Searches for placements of <paramref name="items"/>. <paramref name="preloaded"/> are the
+    /// containers a request's fixed placements name, each holding only its fixed items, in the
+    /// order they open: every start fills them first and keeps them, whatever else it does.
+    /// </summary>
     public PortfolioRun Solve(ImmutableArray<ItemInstance> items, ImmutableArray<Container> containers,
-        PackingConfig config, Deadline deadline)
+        PackingConfig config, Deadline deadline, ImmutableArray<PackedContainer> preloaded = default)
     {
+        preloaded = preloaded.IsDefault ? [] : preloaded;
         var starts = Starts(items, config);
         if (config.EffortBudget?.MaxRestarts is { } restarts)
         {
             starts = [.. starts.Take((int)Math.Min(restarts, int.MaxValue))];
         }
-        return SolveSequential(items, containers, config, deadline, starts, config.EffortBudget);
+        return SolveSequential(items, containers, config, deadline, starts, config.EffortBudget, preloaded);
     }
 
     private List<ISingleContainerSolver> Solvers(IReadOnlyList<ItemInstance> items, PackingConfig config)
@@ -181,7 +187,8 @@ public sealed class SolverOrchestrator(
     }
 
     private PortfolioRun SolveSequential(ImmutableArray<ItemInstance> items, ImmutableArray<Container> containers,
-        PackingConfig config, Deadline deadline, List<Start> starts, EffortBudget? effortBudget)
+        PackingConfig config, Deadline deadline, List<Start> starts, EffortBudget? effortBudget,
+        ImmutableArray<PackedContainer> preloaded)
     {
         var results = new List<RawSolution>();
         var completed = new Dictionary<string, Start>(StringComparer.Ordinal);
@@ -213,7 +220,7 @@ public sealed class SolverOrchestrator(
                               || start.OrderName.Contains(":late_", StringComparison.Ordinal)
                 ? config.WithSearchWidths(1, 1, 1)
                 : config;
-            var outcome = AcrossContainers(start.Solver, start.Order, containers, startConfig, stats, budget);
+            var outcome = AcrossContainers(start.Solver, start.Order, containers, startConfig, stats, budget, preloaded);
             var effortReached = budget.EffortExceeded;
             var wallReached = outcome.Reached && budget.RemainingNs <= 0;
             var unpacked = effortReached
@@ -233,7 +240,7 @@ public sealed class SolverOrchestrator(
                 break;
             }
         }
-        return FinishPortfolio(items, containers, deadline, results, records);
+        return FinishPortfolio(items, containers, deadline, results, records, preloaded);
     }
 
     /// <summary>
@@ -271,14 +278,14 @@ public sealed class SolverOrchestrator(
     private static SortKey Key(ScoreVector score) => SortKey.Of([.. score.Keys.Select(key => (object)key)]);
 
     private PortfolioRun FinishPortfolio(ImmutableArray<ItemInstance> items, ImmutableArray<Container> containers,
-        Deadline deadline, List<RawSolution> results, List<StartRecord> records)
+        Deadline deadline, List<RawSolution> results, List<StartRecord> records, ImmutableArray<PackedContainer> preloaded)
     {
         var globalDeadline = deadline.Expired;
         var finished = records.Select(record => record with { GlobalDeadlineReached = globalDeadline }).ToList();
         if (results.Count == 0)
         {
             const string fallbackId = "portfolio:fallback";
-            results.Add(new RawSolution(fallbackId, [],
+            results.Add(new RawSolution(fallbackId, preloaded,
                 [.. items.Select(item => UnpackedFor(item, containers, true))], new SearchStats(), true));
             finished.Add(new StartRecord(fallbackId, true, true, false, GlobalDeadlineReached: globalDeadline));
         }
@@ -372,19 +379,76 @@ public sealed class SolverOrchestrator(
         bool Exhaustive, bool Reached, bool DominantLattice);
 
     private Outcome AcrossContainers(ISingleContainerSolver solver, ImmutableArray<ItemInstance> items,
-        ImmutableArray<Container> containers, PackingConfig config, SearchStats stats, Deadline deadline) =>
-        config.ContainerPlanBeamWidth > 1 && containerSelector is DefaultContainerSelector
-            ? AcrossContainersBeam(solver, items, containers, config, stats, deadline)
-            : AcrossContainersGreedy(solver, items, containers, config, stats, deadline);
+        ImmutableArray<Container> containers, PackingConfig config, SearchStats stats, Deadline deadline,
+        ImmutableArray<PackedContainer> preloaded)
+    {
+        var opened = OpenPreloaded(solver, preloaded, items, containers, config, stats, deadline);
+        return config.ContainerPlanBeamWidth > 1 && containerSelector is DefaultContainerSelector
+            ? AcrossContainersBeam(solver, items, containers, config, stats, deadline, opened)
+            : AcrossContainersGreedy(solver, items, containers, config, stats, deadline, opened);
+    }
 
+    /// <summary>
+    /// Fills every container holding fixed items, first, and keeps it whatever it gets; returns
+    /// the plan every start continues from. A container search cannot fill -- the deadline has
+    /// passed, or the solver ran out of time -- is kept with its fixed items alone: dropping it
+    /// would drop items the request says are already loaded. One single-container solve per
+    /// fixed container.
+    /// </summary>
+    private static (Plan Plan, bool Reached) OpenPreloaded(ISingleContainerSolver solver,
+        ImmutableArray<PackedContainer> preloaded, ImmutableArray<ItemInstance> items,
+        ImmutableArray<Container> containers, PackingConfig config, SearchStats stats, Deadline deadline)
+    {
+        var plan = new Plan([], items,
+            containers.ToImmutableDictionary(c => c.Id, c => c.Quantity, StringComparer.Ordinal),
+            containers.ToImmutableDictionary(c => c.Id, _ => 0, StringComparer.Ordinal));
+        var reached = false;
+        foreach (var fixedContainer in preloaded)
+        {
+            var seeded = fixedContainer.Container.WithPreloaded(fixedContainer.Placements);
+            SingleContainerSolution? one = null;
+            if (!reached && !deadline.Expired)
+            {
+                try
+                {
+                    one = solver.PackOne(seeded, fixedContainer.Sequence, plan.Remaining, config, stats, deadline);
+                }
+                catch (TimeLimitReachedException)
+                {
+                    one = null;
+                }
+            }
+            if (one is null || one.TimeLimitReached)
+            {
+                reached = true;
+            }
+            var state = one?.State ?? new ContainerState(seeded, fixedContainer.Sequence);
+            var (packedContainer, ids) = PackedState(state);
+            plan = new Plan(
+                plan.Packed.Add(packedContainer),
+                [.. plan.Remaining.Where(item => !ids.Contains(item.Id))],
+                plan.Inventory[seeded.Id] is { } count ? plan.Inventory.SetItem(seeded.Id, count - 1) : plan.Inventory,
+                plan.Sequences.SetItem(seeded.Id, fixedContainer.Sequence),
+                plan.Exhaustive && one is not null && one.Exhaustive,
+                plan.DominantLattice && one is not null && one.DominantLattice);
+        }
+        return (plan, reached);
+    }
+
+    /// <summary>
+    /// A result carries the request's container, not the seeded instance: anything that rebuilds
+    /// a state from a packed container re-adds every placement itself, and a seeded container
+    /// would add the fixed ones twice.
+    /// </summary>
     private static (PackedContainer Packed, HashSet<string> Ids) PackedState(ContainerState state)
     {
+        var container = state.Container.Preloaded.IsEmpty ? state.Container : state.Container.WithPreloaded([]);
         if (state.LatticeSummary is { } summary)
         {
-            return (new PackedContainer(state.Container, state.Sequence, [], summary, state.LatticeItems),
+            return (new PackedContainer(container, state.Sequence, [], summary, state.LatticeItems),
                 state.LatticeItems.Select(item => item.Id).ToHashSet(StringComparer.Ordinal));
         }
-        return (new PackedContainer(state.Container, state.Sequence, Loads.WithTopLoads(state.Placements)),
+        return (new PackedContainer(container, state.Sequence, Loads.WithTopLoads(state.Placements)),
             state.Placements.Select(placement => placement.Instance.Id).ToHashSet(StringComparer.Ordinal));
     }
 
@@ -396,16 +460,18 @@ public sealed class SolverOrchestrator(
         [.. containers.OrderBy(c => SortKey.Of(c.CostMinor, c.InnerDimensions.Volume, c.Id))];
 
     private Outcome AcrossContainersGreedy(ISingleContainerSolver solver, ImmutableArray<ItemInstance> items,
-        ImmutableArray<Container> containers, PackingConfig config, SearchStats stats, Deadline deadline)
+        ImmutableArray<Container> containers, PackingConfig config, SearchStats stats, Deadline deadline,
+        (Plan Plan, bool Reached) opened)
     {
-        var remaining = items.ToList();
-        var packed = new List<PackedContainer>();
-        var (reached, exhaustive, dominantLattice) = (false, true, true);
-        var inventory = containers.ToDictionary(c => c.Id, c => c.Quantity, StringComparer.Ordinal);
-        var sequences = containers.ToDictionary(c => c.Id, _ => 0, StringComparer.Ordinal);
+        var (start, reached) = opened;
+        var remaining = start.Remaining.ToList();
+        var packed = start.Packed.ToList();
+        var (exhaustive, dominantLattice) = (start.Exhaustive, start.DominantLattice);
+        var inventory = new Dictionary<string, int?>(start.Inventory, StringComparer.Ordinal);
+        var sequences = new Dictionary<string, int>(start.Sequences, StringComparer.Ordinal);
         var maximum = MaximumContainers(items, containers, config);
         var ordered = CostOrder(containers);
-        while (remaining.Count > 0 && packed.Count < maximum)
+        while (remaining.Count > 0 && packed.Count < maximum && !reached)
         {
             if (deadline.Expired)
             {
@@ -523,17 +589,15 @@ public sealed class SolverOrchestrator(
     /// one single-container solve.
     /// </summary>
     private Outcome AcrossContainersBeam(ISingleContainerSolver solver, ImmutableArray<ItemInstance> items,
-        ImmutableArray<Container> containers, PackingConfig config, SearchStats stats, Deadline deadline)
+        ImmutableArray<Container> containers, PackingConfig config, SearchStats stats, Deadline deadline,
+        (Plan Plan, bool Reached) opened)
     {
         var ordered = CostOrder(containers);
         var maximum = MaximumContainers(items, containers, config);
-        var initial = new Plan([], items,
-            containers.ToImmutableDictionary(c => c.Id, c => c.Quantity, StringComparer.Ordinal),
-            containers.ToImmutableDictionary(c => c.Id, _ => 0, StringComparer.Ordinal));
-        List<Plan> beam = [initial];
+        var (initial, reached) = opened;
+        List<Plan> beam = reached ? [] : [initial];
         var incumbent = initial;
         long planNodes = 0;
-        var reached = false;
         while (beam.Count > 0 && planNodes < config.ContainerPlanNodeLimit)
         {
             var expansions = new List<Plan>();

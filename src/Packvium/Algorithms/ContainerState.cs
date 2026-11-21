@@ -39,6 +39,12 @@ public sealed class ContainerState
         {
             Absorb(ExposedPoints(box));
         }
+        // Fixed items enter as real placements, so payload, support, top load and every other
+        // rule that reads Placements holds for them with no rule of its own.
+        foreach (var placement in container.Preloaded)
+        {
+            Add(placement);
+        }
     }
 
     private ContainerState(ContainerState source)
@@ -131,19 +137,36 @@ public sealed class ContainerState
         // exact collision test to decide.
         if (shape is null)
         {
-            var retired = points.Keys.Where(key => Inside(bound, key.Item1, key.Item2, key.Item3)).ToList();
-            foreach (var key in retired)
-            {
-                points.Remove(key);
-            }
-            // OrderedPoints holds exactly the points of the dictionary, so the same test retires
-            // the same set there without building a key per point.
-            if (retired.Count > 0)
-            {
-                OrderedPoints = [.. OrderedPoints.Where(point => !Inside(bound, point.X, point.Y, point.Z))];
-            }
+            RetireInside(bound);
         }
         Absorb(ExposedPoints(box));
+    }
+
+    /// <summary>
+    /// Retires every point inside <paramref name="bound"/> from both views in one pass over the
+    /// ordered list, which holds exactly the dictionary's points. O(p) for p points; the list is
+    /// copied only from the first retired point on, so a box that covers none allocates nothing.
+    /// </summary>
+    private void RetireInside(Bound bound)
+    {
+        List<Point>? kept = null;
+        for (var index = 0; index < OrderedPoints.Count; index++)
+        {
+            var point = OrderedPoints[index];
+            if (Inside(bound, point.X, point.Y, point.Z))
+            {
+                kept ??= OrderedPoints.GetRange(0, index);
+                points.Remove((point.X, point.Y, point.Z));
+            }
+            else
+            {
+                kept?.Add(point);
+            }
+        }
+        if (kept is not null)
+        {
+            OrderedPoints = kept;
+        }
     }
 
     /// <summary>Records a placement for a solver that never queries extreme points (a proven lattice).</summary>
@@ -192,7 +215,8 @@ public sealed class ContainerState
         {
             var middle = (low + high) / 2;
             var current = OrderedPoints[middle];
-            if ((current.Z, current.Y, current.X).CompareTo((point.Z, point.Y, point.X)) <= 0)
+            if (current.Z < point.Z || (current.Z == point.Z
+                    && (current.Y < point.Y || (current.Y == point.Y && current.X <= point.X))))
             {
                 low = middle + 1;
             }

@@ -4,6 +4,51 @@ What changed in `Packvium` on NuGet, release by release. The format follows
 [Keep a Changelog](https://keepachangelog.com/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0]
+
+Matches Packvium 1.4.0: all 400 packing fixtures of the 1.4.0 conformance corpus, byte for
+byte in canonical form, all 55 commerce cases, the execution plan of every golden result, the
+six operator-lock scenarios, all 421 operational-artifact cases, all 122 malformed-request
+cases and all 102 plan-revision cases of the release. A request without fixed placements packs
+exactly as in 1.3.0.
+
+### Added
+
+- **Fixed placements.** A request's `fixed_placements` name items already in a known place, by
+  item type, container type and instance, position and orientation. They take the first
+  instances of their type, their containers open first and are kept, and the solve packs
+  around them with their weight, support and top load counted; they come back with
+  `"fixed": true`. `Packer.Pack(items, containers, fixedPlacements)` takes them in code. A fixed
+  set that cannot hold on its own is refused with `FixedPlacementException` before any search,
+  and the independent validator refuses an answer that drops, moves or invents one.
+- **Structured request errors.** A malformed request throws `InvalidRequestException`, an
+  `ArgumentException` as before, with `Code` (`invalid_request`), `Reason` from a closed set,
+  `Field` as an RFC 6901 pointer and the message every engine writes:
+  `invalid_request: /items/0/quantity: must be at least 1`. Every schema `minimum` is a floor
+  and no length or weight may be negative. A list or object among a tag set is refused with
+  the reference's `unhashable type: 'list'` (or `'dict'`), as every engine refuses it.
+- **Plan revisions.** `Packvium.Revisions.PlanRevision` builds `packvium-plan-revision/v1`
+  documents: `Root`, `Derive`, `ApplyEvents`, `VerifyChain`, `CanonicalJson` and `Digest`
+  (SHA-256 over RFC 8785 bytes), with the events `item_missing`, `container_substituted`,
+  `placement_locked` and `placement_verified`. A refusal throws `PlanRevisionException` with
+  the code every engine reports.
+- **Revision outcomes.** `Packvium.Intelligence.RevisionOutcomes` appends a revision's events
+  to an `OutcomeLedger` as `item_missing`, `actual_carton`, `operator_override` and
+  `placement_verified` events, each named by the decision, the revision's digest and its
+  sequence.
+- **A `Revisions` example**, checked against the output of the matching Python example; only
+  Python's spelling of null differs.
+
+### Changed
+
+- **A limit below its floor is refused.** `max_containers`, a container's `max_items` and every
+  effort-budget limit below 1 throw instead of being read as a limit that stops everything.
+- **An integral float is a whole number.** `100.0` is accepted as a measure or an integer field,
+  as JavaScript cannot send anything else for `100`; a fractional float is still refused.
+- **Search does less work.** The beam sorts the volumes and weights of later batches once per
+  layer instead of once per ranked node, a point retires from the candidate list in one pass,
+  and a one-cell spatial query skips its memo. Results are unchanged.
+
 ## [1.3.0]
 
 Matches Packvium 1.3.0: all 398 packing fixtures of the 1.3.0 conformance corpus, byte for

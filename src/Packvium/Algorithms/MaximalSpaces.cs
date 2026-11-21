@@ -139,7 +139,10 @@ public sealed class MaximalSpaceSolver(IReadOnlyList<IPlacementConstraint>? cons
         var state = new ContainerState(container, sequence);
         var all = BeamPack.DefaultConstraints(config, constraints);
         var spaces = MaximalSpaces.SubtractAll([new Space(Point.Origin, container.InnerDimensions)],
-            container.Obstacles.SelectMany(obstacle => obstacle.Boxes), stats);
+            [
+                .. container.Obstacles.SelectMany(obstacle => obstacle.Boxes),
+                .. container.Preloaded.Select(placement => placement.EnvelopeBox),
+            ], stats);
         var unplaced = new List<ItemInstance>();
         var batches = CandidateFinder.GroupBatches(items);
         for (var position = 0; position < batches.Count; position++)

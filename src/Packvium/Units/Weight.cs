@@ -71,6 +71,9 @@ public readonly record struct Weight : IComparable<Weight>
     public static bool operator >=(Weight left, Weight right) => left.Ticks >= right.Ticks;
 
     /// <summary>Ticks per one <paramref name="unit"/>; throws for a unit the table does not hold.</summary>
+    /// <summary>Whether <paramref name="unit"/>, lowered and stripped as the parser reads it, is a weight unit.</summary>
+    public static bool Knows(string unit) => Multipliers.ContainsKey(PythonText.UnitKey(unit, strip: true));
+
     public static long MultiplierOf(string unit, bool strip) =>
         Multipliers.TryGetValue(PythonText.UnitKey(unit, strip), out var multiplier)
             ? multiplier

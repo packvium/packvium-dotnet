@@ -28,7 +28,7 @@ public sealed record ExtensionRegistry(
 
 /// <summary>
 /// Runs the portfolio, scores and independently validates every answer, and returns the best
-/// valid one with its runners-up. Reusable: all per-call state lives inside <see cref="Pack"/>.
+/// valid one with its runners-up. Reusable: all per-call state lives inside <see cref="Pack(IEnumerable{Item}, IEnumerable{Container}, IEnumerable{FixedPlacement})"/>.
 /// </summary>
 public sealed class Packer(PackingConfig? config = null, ExtensionRegistry? extensions = null,
     ISolutionScorer? solutionScorer = null, Func<long>? clock = null)
@@ -36,14 +36,24 @@ public sealed class Packer(PackingConfig? config = null, ExtensionRegistry? exte
     private readonly PackingConfig config = config ?? new PackingConfig();
     private readonly ExtensionRegistry extensions = extensions ?? new ExtensionRegistry();
 
-    public PackingResult Pack(IEnumerable<Item> items, IEnumerable<Container> containers)
+    public PackingResult Pack(IEnumerable<Item> items, IEnumerable<Container> containers) => Pack(items, containers, []);
+
+    /// <summary>
+    /// Packs around <paramref name="fixedPlacements"/>: items already in a known place, which take
+    /// the first instances of their type and open their containers first. A fixed set that cannot
+    /// hold on its own is refused with <see cref="FixedPlacementException"/> before any search.
+    /// </summary>
+    public PackingResult Pack(IEnumerable<Item> items, IEnumerable<Container> containers,
+        IEnumerable<FixedPlacement> fixedPlacements)
     {
-        var request = new PackingRequest(items, containers);
+        var request = new PackingRequest(items, containers, fixedPlacements);
         RefuseUnpriceableObjective(request);
+        var fixedLoad = FixedPlacementAdmission.Admit(request, config.MinimumSupportRatio, config.Clearance,
+            config.MaxContainers);
         var deadline = new Deadline(config.TimeLimitMs, clock: clock);
         var orchestrator = new SolverOrchestrator(extensions.PlacementConstraints, extensions.ItemOrderStrategies,
             extensions.Solvers, extensions.ContainerSelector);
-        var portfolio = orchestrator.Solve(request.Instances, request.Containers, config, deadline);
+        var portfolio = orchestrator.Solve(fixedLoad.Free, request.Containers, config, deadline, fixedLoad.Containers);
         var scorer = solutionScorer ?? ObjectiveScorers.Resolve(config.Objective, config);
         var ranked = portfolio.Solutions.Select(raw => Ranked(raw, portfolio, request, scorer, deadline)).ToList();
         if (ranked.Count == 0)

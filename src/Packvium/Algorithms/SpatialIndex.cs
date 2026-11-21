@@ -81,6 +81,11 @@ public sealed class SpatialIndex
     public ImmutableArray<int> Query(long x1, long y1, long z1, long x2, long y2, long z2)
     {
         var range = CellRange(x1, y1, z1, x2, y2, z2);
+        // One cell is its own bucket, already duplicate-free: no memo entry is worth its cost.
+        if (range.Item1 + 1 == range.Item2 && range.Item3 + 1 == range.Item4 && range.Item5 + 1 == range.Item6)
+        {
+            return Bucket(range.Item1, range.Item3, range.Item5);
+        }
         if (answers.TryGetValue(range, out var answer))
         {
             return answer;

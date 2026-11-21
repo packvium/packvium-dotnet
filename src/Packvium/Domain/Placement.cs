@@ -5,6 +5,7 @@ namespace Packvium.Domain;
 /// <summary>
 /// One item instance at one position. <see cref="Position"/> and <see cref="Dimensions"/> are the
 /// physical item; the envelope is the item plus any clearance, which is what collides.
+/// <see cref="Fixed"/> marks a placement a request's fixed placements made, not search; nothing may move it.
 /// </summary>
 public sealed record Placement(
     ItemInstance Instance,
@@ -14,7 +15,8 @@ public sealed record Placement(
     Point EnvelopeOrigin,
     Dimensions EnvelopeDimensions,
     double SupportRatio = 1.0,
-    Weight TopLoad = default)
+    Weight TopLoad = default,
+    bool Fixed = false)
 {
     public AxisAlignedBox Box => new(Position, Dimensions);
 

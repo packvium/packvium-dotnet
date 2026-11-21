@@ -37,11 +37,39 @@ public static class SolverProfiles
 /// Counted-work limits, checked alongside (never instead of) the wall clock: a count is a
 /// reproducible measure of work, a clock is not.
 /// </summary>
-public sealed record EffortBudget(
-    long? MaxCandidatesEvaluated = null,
-    long? MaxPlacementAttempts = null,
-    long? MaxSearchNodes = null,
-    long? MaxRestarts = null);
+public sealed record EffortBudget
+{
+    public EffortBudget(long? MaxCandidatesEvaluated = null, long? MaxPlacementAttempts = null,
+        long? MaxSearchNodes = null, long? MaxRestarts = null)
+    {
+        // A limit of zero or less would stop every search before its first step, which no
+        // caller means; the schema's floor for each is 1.
+        RequireAtLeastOne(MaxCandidatesEvaluated, "max_candidates_evaluated");
+        RequireAtLeastOne(MaxPlacementAttempts, "max_placement_attempts");
+        RequireAtLeastOne(MaxSearchNodes, "max_search_nodes");
+        RequireAtLeastOne(MaxRestarts, "max_restarts");
+        this.MaxCandidatesEvaluated = MaxCandidatesEvaluated;
+        this.MaxPlacementAttempts = MaxPlacementAttempts;
+        this.MaxSearchNodes = MaxSearchNodes;
+        this.MaxRestarts = MaxRestarts;
+    }
+
+    public long? MaxCandidatesEvaluated { get; }
+
+    public long? MaxPlacementAttempts { get; }
+
+    public long? MaxSearchNodes { get; }
+
+    public long? MaxRestarts { get; }
+
+    private static void RequireAtLeastOne(long? limit, string name)
+    {
+        if (limit is < 1)
+        {
+            throw new ArgumentException($"effort_budget.{name} must be at least 1");
+        }
+    }
+}
 
 /// <summary>Immutable solve configuration, validated at construction.</summary>
 public sealed record PackingConfig
@@ -175,6 +203,10 @@ public sealed record PackingConfig
             || ParallelStarts <= 0 || ContainerPlanBeamWidth <= 0 || ContainerPlanNodeLimit <= 0)
         {
             throw new ArgumentException("positive configuration values required");
+        }
+        if (MaxContainers is < 1)
+        {
+            throw new ArgumentException("max_containers must be at least 1");
         }
         if (MaxCandidatePoints < 16)
         {

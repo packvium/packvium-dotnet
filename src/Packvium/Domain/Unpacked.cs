@@ -55,10 +55,12 @@ public sealed class UnpackedItem(ItemInstance instance, string reason, Immutable
 /// <summary>The items and containers of one request, with ids unique within each.</summary>
 public sealed class PackingRequest
 {
-    public PackingRequest(IEnumerable<Item> items, IEnumerable<Container> containers)
+    public PackingRequest(IEnumerable<Item> items, IEnumerable<Container> containers,
+        IEnumerable<FixedPlacement>? fixedPlacements = null)
     {
         Items = [.. items];
         Containers = [.. containers];
+        FixedPlacements = [.. fixedPlacements ?? []];
         if (Items.IsEmpty)
         {
             throw new ArgumentException("at least one item is required");
@@ -80,6 +82,9 @@ public sealed class PackingRequest
     public ImmutableArray<Item> Items { get; }
 
     public ImmutableArray<Container> Containers { get; }
+
+    /// <summary>Items the request already places, in the order it lists them.</summary>
+    public ImmutableArray<FixedPlacement> FixedPlacements { get; }
 
     public ImmutableArray<ItemInstance> Instances =>
         [.. Items.SelectMany(item => item.Instances())];

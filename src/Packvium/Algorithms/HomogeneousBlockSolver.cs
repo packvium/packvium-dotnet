@@ -60,7 +60,8 @@ public sealed class HomogeneousBlockSolver(IReadOnlyList<IPlacementConstraint>? 
 
     private bool Supports(Container container, IReadOnlyList<ItemInstance> items)
     {
-        if (constraints.Count > 0 || container.Obstacles.Length > 0 || container.Axles is not null
+        if (constraints.Count > 0 || container.Obstacles.Length > 0 || container.Preloaded.Length > 0
+            || container.Axles is not null
             || !container.TagLimits.IsEmpty || container.MaxStackDensity is not null || container.VoidFillReserveRatio > 0)
         {
             return false;

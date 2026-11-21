@@ -6,7 +6,10 @@ namespace Packvium.Serialization;
 /// <summary>The JSON entry point: <c>serialization.pack_from_dict</c>.</summary>
 public static class JsonApi
 {
-    /// <summary>Packs a JSON request and returns the result document.</summary>
+    /// <summary>
+    /// Packs a JSON request and returns the result document. A request that is not one any engine
+    /// may answer is refused with <see cref="Domain.InvalidRequestException"/> naming the bad value.
+    /// </summary>
     public static JsonObject PackFromJson(JsonValue request) => PackFromJson(request, null);
 
     /// <summary>
@@ -20,7 +23,7 @@ public static class JsonApi
         var call = RequestReader.Read(request);
         var supplied = extensions ?? new ExtensionRegistry();
         var registry = supplied with { PlacementConstraints = [.. call.PlacementConstraints, .. supplied.PlacementConstraints] };
-        var result = new Packer(call.Configuration, registry).Pack(call.Items, call.Containers)
+        var result = new Packer(call.Configuration, registry).Pack(call.Items, call.Containers, call.FixedPlacements)
             .WithCatalogVersionsUsed(call.CatalogVersionsUsed.Cast<object>());
         return ResultWriter.Write(result, call.OutputLengthUnit, call.OutputWeightUnit);
     }

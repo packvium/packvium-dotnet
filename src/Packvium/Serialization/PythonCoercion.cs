@@ -67,12 +67,14 @@ internal static class PythonCoercion
 
     /// <summary>
     /// A value passed through untouched and later compared as an integer: Python accepts an int
-    /// or a bool there, and nothing else survives the comparison.
+    /// or a bool there, and nothing else survives the comparison. An integral float is the
+    /// integer it spells, as the request rules judge it and as JavaScript cannot tell apart.
     /// </summary>
     public static long? RawInt(JsonValue? value) => value switch
     {
         null or JsonNull => null,
         JsonInteger or JsonBool => Int(value),
+        JsonFloat number when double.IsInteger(number.Value) => Int(value),
         _ => throw new ArgumentException($"'<' not supported between instances of '{TypeName(value)}' and 'int'"),
     };
 
@@ -84,6 +86,21 @@ internal static class PythonCoercion
         JsonString text => text.Value.EnumerateRunes().Select(rune => (JsonValue)new JsonString(rune.ToString())),
         _ => throw new ArgumentException($"'{TypeName(value)}' object is not iterable"),
     };
+
+    /// <summary>
+    /// Tag set members (<c>frozenset(raw.get("tags", []))</c>): a list or object member cannot be
+    /// hashed, refused with Python's own text whatever members precede it; any other non-string
+    /// member is refused as <see cref="StringMembers"/> refuses it, which Python would coerce.
+    /// </summary>
+    public static IEnumerable<string> TagMembers(JsonValue value)
+    {
+        var members = Iterate(value).ToList();
+        if (members.FirstOrDefault(member => member is JsonArray or JsonObject) is { } unhashable)
+        {
+            throw new ArgumentException($"unhashable type: '{TypeName(unhashable)}'");
+        }
+        return StringMembers(new JsonArray([.. members]));
+    }
 
     /// <summary>Set members: strings only, which is all the schema admits.</summary>
     public static IEnumerable<string> StringMembers(JsonValue value) =>

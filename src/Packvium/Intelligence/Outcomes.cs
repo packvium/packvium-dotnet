@@ -43,6 +43,10 @@ public enum OutcomeEventType
     Return,
     /// <summary>An operator overrode the decision.</summary>
     OperatorOverride,
+    /// <summary>Items of a type were missing, recorded from an approved plan revision.</summary>
+    ItemMissing,
+    /// <summary>A placement was verified where the plan put it, recorded from an approved plan revision.</summary>
+    PlacementVerified,
 }
 
 /// <summary>The wire spellings of <see cref="OutcomeEventType"/> and the payload fields each one accepts.</summary>
@@ -63,6 +67,8 @@ public static class OutcomeEventTypes
             [OutcomeEventType.Damage] = Fields("reason_code", "severity"),
             [OutcomeEventType.Return] = Fields("reason_code"),
             [OutcomeEventType.OperatorOverride] = Fields("reason_code", "operator_id"),
+            [OutcomeEventType.ItemMissing] = Fields("item_type", "quantity"),
+            [OutcomeEventType.PlacementVerified] = Fields("item_type", "container_type"),
         }.ToImmutableDictionary();
 
     /// <summary>The wire spelling, such as <c>actual_carton</c>.</summary>
@@ -76,6 +82,8 @@ public static class OutcomeEventTypes
         OutcomeEventType.Damage => "damage",
         OutcomeEventType.Return => "return",
         OutcomeEventType.OperatorOverride => "operator_override",
+        OutcomeEventType.ItemMissing => "item_missing",
+        OutcomeEventType.PlacementVerified => "placement_verified",
         _ => throw new UnsupportedOutcomeFieldException($"unsupported event type {(int)type}"),
     };
 

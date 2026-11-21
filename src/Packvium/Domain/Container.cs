@@ -31,6 +31,30 @@ public sealed class Container
         Weight? maxStackDensity = null,
         (Axle Front, Axle Rear)? axles = null,
         IEnumerable<string>? accessDirections = null)
+        : this(id, innerDimensions, outerDimensions, tareWeight, maxPayload, costMinor, rateTable, quantity, obstacles,
+            tags, maxItems, voidFillReserveRatio, tagLimits, metadata, maxStackDensity, axles, accessDirections, [])
+    {
+    }
+
+    private Container(
+        string id,
+        Dimensions innerDimensions,
+        Dimensions? outerDimensions,
+        Weight tareWeight,
+        Weight? maxPayload,
+        long costMinor,
+        RateTable? rateTable,
+        int? quantity,
+        IEnumerable<Obstacle>? obstacles,
+        IEnumerable<string>? tags,
+        long? maxItems,
+        double voidFillReserveRatio,
+        IEnumerable<KeyValuePair<string, long>>? tagLimits,
+        IReadOnlyDictionary<string, object?>? metadata,
+        Weight? maxStackDensity,
+        (Axle Front, Axle Rear)? axles,
+        IEnumerable<string>? accessDirections,
+        ImmutableArray<Placement> preloaded)
     {
         Id = id;
         InnerDimensions = innerDimensions;
@@ -53,6 +77,7 @@ public sealed class Container
         // different order must search identically.
         AccessDirections = [.. Directions.All.Where(doors.Contains)];
         Tags = (tags ?? []).ToFrozenSet(StringComparer.Ordinal);
+        Preloaded = preloaded;
     }
 
     public string Id { get; }
@@ -99,6 +124,19 @@ public sealed class Container
     /// </summary>
     public ImmutableArray<string> AccessDirections { get; }
 
+    /// <summary>
+    /// Items already in this one container instance before search starts. Set only by the
+    /// orchestrator, on the instance a request's fixed placements name, so every solver's
+    /// <c>ContainerState</c> starts from them without knowing they exist; a packed result
+    /// carries the container with this emptied again.
+    /// </summary>
+    public ImmutableArray<Placement> Preloaded { get; }
+
+    /// <summary>This container holding <paramref name="placements"/> before search, or the plain container for none.</summary>
+    public Container WithPreloaded(ImmutableArray<Placement> placements) =>
+        new(Id, InnerDimensions, OuterDimensions, TareWeight, MaxPayload, CostMinor, RateTable, Quantity, Obstacles, Tags,
+            MaxItems, VoidFillReserveRatio, TagLimits, Metadata, MaxStackDensity, Axles, AccessDirections, placements);
+
     private void Validate(List<string> doors)
     {
         if (Id.Length == 0)
@@ -121,6 +159,10 @@ public sealed class Container
         if (TagLimits.Any(limit => limit.Value < 1))
         {
             throw new ArgumentException("tag_limits must be at least 1");
+        }
+        if (MaxItems is < 1)
+        {
+            throw new ArgumentException("container max_items must be at least 1");
         }
         if (doors.FirstOrDefault(door => !Directions.All.Contains(door)) is { } unknown)
         {

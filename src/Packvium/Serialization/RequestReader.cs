@@ -15,6 +15,7 @@ public sealed record PackingCall(
     ImmutableArray<IPlacementConstraint> PlacementConstraints,
     ImmutableArray<Item> Items,
     ImmutableArray<Container> Containers,
+    ImmutableArray<FixedPlacement> FixedPlacements,
     ImmutableArray<JsonObject> CatalogVersionsUsed,
     string OutputLengthUnit,
     string OutputWeightUnit);
@@ -28,13 +29,44 @@ public static class RequestReader
 {
     private static readonly JsonObject Empty = new([]);
 
+    /// <summary>
+    /// Reads a JSON request. A request that is not one any engine may answer is refused with an
+    /// <see cref="InvalidRequestException"/> (or its subclass <see cref="FixedPlacementException"/>)
+    /// naming the bad value: the schema's rules first, then whatever building the model refuses.
+    /// </summary>
     public static PackingCall Read(JsonValue document)
     {
-        var data = PythonCoercion.Object(document);
-        UnsupportedFields.Reject(data);
-        var unit = PythonCoercion.Str(PythonCoercion.Object(data.Get("units") ?? Empty).Get("length")
+        if (document is not JsonObject raw)
+        {
+            throw new InvalidRequestException("wrong_type", string.Empty, "must be an object");
+        }
+        UnsupportedFields.Reject(raw);
+        RequestRules.Check(raw);
+        var data = WithoutNullOptionals(raw);
+        try
+        {
+            return Build(data);
+        }
+        catch (Exception error) when (IsUnnamedRefusal(error))
+        {
+            throw new InvalidRequestException("invalid_value", string.Empty, error.Message);
+        }
+    }
+
+    /// <summary>
+    /// Whatever the rule table did not name still reaches the caller as a request error. Only
+    /// building the model runs inside this, never the solve, so a solver defect is never dressed
+    /// up as the caller's mistake; an error that already carries its own code passes unchanged.
+    /// </summary>
+    private static bool IsUnnamedRefusal(Exception error) =>
+        error is (ArgumentException or ArithmeticException or FormatException or KeyNotFoundException or InvalidCastException)
+            and not InvalidRequestException and not InvalidDirectionException;
+
+    private static PackingCall Build(JsonObject data)
+    {
+        var unit = PythonCoercion.Str(PythonCoercion.Object(data.GetPresent("units") ?? Empty).Get("length")
                                       ?? new JsonString("mm"));
-        var configuration = ReadConfiguration(PythonCoercion.Object(data.Get("configuration") ?? Empty), unit);
+        var configuration = ReadConfiguration(PythonCoercion.Object(data.GetPresent("configuration") ?? Empty), unit);
         var references = CatalogVersionsUsed(data.Get("catalog_versions_used") ?? new JsonArray([]));
         // Rules compile into the constraint pipeline, so an illegal candidate is refused during
         // search rather than filtered out of a finished answer.
@@ -43,11 +75,59 @@ public static class RequestReader
             .Select(raw => ReadItem(PythonCoercion.Object(raw), unit)).ToImmutableArray();
         var containers = PythonCoercion.Iterate(data.Require("containers"))
             .Select(raw => ReadContainer(PythonCoercion.Object(raw), unit)).ToImmutableArray();
+        var fixedPlacements = FixedPlacementShapes.Read(data.Get("fixed_placements"), unit);
         var output = PythonCoercion.Object(data.Get("output") ?? Empty);
-        return new PackingCall(configuration, policy.Constraints(), items, containers, references,
+        return new PackingCall(configuration, policy.Constraints(), items, containers, fixedPlacements, references,
             output.Get("length_unit") is { } lengthUnit ? PythonCoercion.Str(lengthUnit) : unit,
             output.Get("weight_unit") is { } weightUnit ? PythonCoercion.Str(weightUnit) : "g");
     }
+
+    /// <summary>
+    /// The request with every null optional removed, where the rule table already treats null as
+    /// absent: the model builders take their defaults from a missing key. Only the request's own
+    /// records are cleaned -- <c>metadata</c> and the like are echoed back and keep their nulls.
+    /// </summary>
+    private static JsonObject WithoutNullOptionals(JsonObject data)
+    {
+        var request = WithoutNulls(data);
+        if (request.Get("configuration") is JsonObject configuration)
+        {
+            var cleaned = WithoutNulls(configuration);
+            if (cleaned.Get("effort_budget") is JsonObject effort && WithoutNulls(effort) is var budget && !ReferenceEquals(budget, effort))
+            {
+                cleaned = cleaned.With("effort_budget", budget);
+            }
+            if (!ReferenceEquals(cleaned, configuration))
+            {
+                request = request.With("configuration", cleaned);
+            }
+        }
+        // The rule table has already required both lists and every entry in them to be objects.
+        foreach (var key in (ReadOnlySpan<string>)["items", "containers"])
+        {
+            var entries = (JsonArray)request.Require(key);
+            ImmutableArray<JsonValue> cleaned = [.. entries.Items.Select(entry => (JsonValue)RecordWithoutNulls((JsonObject)entry))];
+            if (!cleaned.Select((entry, index) => ReferenceEquals(entry, entries.Items[index])).All(same => same))
+            {
+                request = request.With(key, new JsonArray(cleaned));
+            }
+        }
+        return request;
+    }
+
+    private static JsonObject RecordWithoutNulls(JsonObject entry)
+    {
+        var record = WithoutNulls(entry);
+        return record.Get("rate_table") is JsonObject table && WithoutNulls(table) is var cleaned && !ReferenceEquals(cleaned, table)
+            ? record.With("rate_table", cleaned)
+            : record;
+    }
+
+    /// <summary>The record without its null members; the record itself when it has none, so a clean request is not copied.</summary>
+    private static JsonObject WithoutNulls(JsonObject record) =>
+        record.Members.Any(member => member.Value is JsonNull)
+            ? new JsonObject(record.Members.Where(member => member.Value is not JsonNull))
+            : record;
 
     private static PackingConfig ReadConfiguration(JsonObject cfg, string unit)
     {
@@ -109,10 +189,10 @@ public static class RequestReader
             maxStackedItems: PythonCoercion.RawInt(raw.Get("max_stacked_items")),
             minimumSupportRatio: PythonCoercion.Float(raw.Get("minimum_support_ratio") ?? new JsonInteger(0)),
             group: OptionalString(raw.Get("group")),
-            tags: PythonCoercion.StringMembers(raw.Get("tags") ?? new JsonArray([])),
-            incompatibleTags: PythonCoercion.StringMembers(raw.Get("incompatible_tags") ?? new JsonArray([])),
+            tags: PythonCoercion.TagMembers(raw.Get("tags") ?? new JsonArray([])),
+            incompatibleTags: PythonCoercion.TagMembers(raw.Get("incompatible_tags") ?? new JsonArray([])),
             priority: PythonCoercion.Int(raw.Get("priority") ?? new JsonInteger(0)),
-            eligibleContainerTags: PythonCoercion.StringMembers(raw.Get("eligible_container_tags") ?? new JsonArray([])),
+            eligibleContainerTags: PythonCoercion.TagMembers(raw.Get("eligible_container_tags") ?? new JsonArray([])),
             groundContactRule: OptionalString(raw.Get("ground_contact_rule")),
             metadata: Metadata(raw.Get("metadata")),
             nestingHeight: raw.GetPresent("nesting_height") is { } nesting ? Measures.Length(nesting, unit) : null,
@@ -164,7 +244,7 @@ public static class RequestReader
             rateTable: raw.GetPresent("rate_table") is { } table ? ReadRateTable(PythonCoercion.Object(table)) : null,
             quantity: raw.GetPresent("quantity") is { } quantity ? checked((int)PythonCoercion.Int(quantity)) : null,
             obstacles: obstacles,
-            tags: PythonCoercion.StringMembers(raw.Get("tags") ?? new JsonArray([])),
+            tags: PythonCoercion.TagMembers(raw.Get("tags") ?? new JsonArray([])),
             maxItems: raw.GetPresent("max_items") is { } maxItems ? PythonCoercion.Int(maxItems) : null,
             voidFillReserveRatio: PythonCoercion.Float(raw.Get("void_fill_reserve_ratio") ?? new JsonInteger(0)),
             tagLimits: PythonCoercion.Object(raw.Get("tag_limits") ?? Empty).Members

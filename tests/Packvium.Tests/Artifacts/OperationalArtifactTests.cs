@@ -42,7 +42,7 @@ public sealed partial class OperationalArtifactTests
         <tr><td>Replay</td><td>exact</td></tr>
         <tr><td>Solver</td><td>balanced / extreme_point / seed 3</td></tr>
         <tr><td>Catalogs</td><td>&mdash;</td></tr>
-        <tr><td>Packvium</td><td>1.3.0</td></tr>
+        <tr><td>Packvium</td><td>1.4.0</td></tr>
         </table>
         <section class="container">
         <h2>Container 1: crate</h2>
@@ -189,7 +189,7 @@ public sealed partial class OperationalArtifactTests
     {
         var artifact = Build();
         Assert.Equal(OperationalArtifact.Format, ((JsonString)artifact.Require("format")).Value);
-        Assert.Equal("1.3.0", ((JsonString)artifact.Require("suite_version")).Value);
+        Assert.Equal("1.4.0", ((JsonString)artifact.Require("suite_version")).Value);
         var provenance = (JsonObject)artifact.Require("provenance");
         Assert.Same(Request, provenance.Require("request"));
         var solver = (JsonObject)provenance.Require("solver");

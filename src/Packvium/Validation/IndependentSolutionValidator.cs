@@ -59,11 +59,54 @@ public static class IndependentSolutionValidator
         issues.AddRange(seen.Except(expected).Order(CodePointComparer.Instance)
             .Select(itemId => new ValidationIssue("unknown_item", itemId)));
         CheckGroups(containers, issues);
+        CheckFixedPlacements(request, containers, issues);
         if (unpacked is not null)
         {
             CheckGroupAccounting(request, containers, issues);
         }
         return new ValidationReport(issues.Count == 0, [.. issues]);
+    }
+
+    private sealed record FixedKey(string ContainerId, string ItemId, Point Position, Rotation Rotation)
+    {
+        public string Detail => $"{ItemId} in {ContainerId} at ({Position.X}, {Position.Y}, {Position.Z}) {Rotation.Value()}";
+    }
+
+    /// <summary>The reference's order: container id and item id by code point, then x, y, z, then the orientation code.</summary>
+    private static IOrderedEnumerable<FixedKey> InReferenceOrder(IEnumerable<FixedKey> keys) => keys
+        .OrderBy(key => key.ContainerId, CodePointComparer.Instance)
+        .ThenBy(key => key.ItemId, CodePointComparer.Instance)
+        .ThenBy(key => key.Position.X).ThenBy(key => key.Position.Y).ThenBy(key => key.Position.Z)
+        .ThenBy(key => key.Rotation.Value(), CodePointComparer.Instance);
+
+    /// <summary>
+    /// Every fixed placement is where the request put it, and nothing else claims to be. Physics
+    /// needs no rule: a fixed item is an ordinary placement, so every check above already
+    /// applied to it. Only whether it moved is new. O(P + f log f) for P placements and f fixed ones.
+    /// </summary>
+    private static void CheckFixedPlacements(PackingRequest request, IReadOnlyList<PackedContainer> containers,
+        List<ValidationIssue> issues)
+    {
+        // Nothing requested and nothing claimed is no issue, found without building either set.
+        if (request.FixedPlacements.IsEmpty && !containers.Any(packed => packed.Placements.Any(placement => placement.Fixed)))
+        {
+            return;
+        }
+        var requested = request.FixedPlacements
+            .Select(entry => new FixedKey(entry.PackedContainerId, entry.ItemId, entry.Position, entry.Rotation))
+            .ToHashSet();
+        var reported = containers
+            .SelectMany(packed => packed.Placements.Where(placement => placement.Fixed)
+                .Select(placement => new FixedKey(packed.Id, placement.Instance.Item.Id, placement.Position, placement.Rotation)))
+            .ToHashSet();
+        var present = containers.Select(packed => packed.Id).ToHashSet(StringComparer.Ordinal);
+        foreach (var key in InReferenceOrder(requested.Except(reported)))
+        {
+            var code = present.Contains(key.ContainerId) ? "fixed_placement_moved" : "fixed_container_missing";
+            issues.Add(new ValidationIssue(code, key.Detail));
+        }
+        issues.AddRange(InReferenceOrder(reported.Except(requested))
+            .Select(key => new ValidationIssue("unexpected_fixed_placement", key.Detail)));
     }
 
     private static void ValidateContainer(PackedContainer packed, double minimumSupportRatio, long clearanceTicks,

@@ -8,9 +8,10 @@ binding over another one. It accepts the same requests and returns the same resu
 Python and PHP engines. Its tests run the shared conformance corpus, and every result
 matches the reference result byte for byte.
 
-> **Version 1.3.0.** This release corresponds to Packvium 1.3.0 in the other languages, and
-> its tests run the 1.3.0 conformance corpus: every packing fixture, every commerce case,
-> every execution plan, every operator-lock scenario and every operational-artifact case.
+> **Version 1.4.0.** This release corresponds to Packvium 1.4.0 in the other languages, and
+> its tests run the 1.4.0 conformance corpus: every packing fixture, every commerce case,
+> every execution plan, every operator-lock scenario, every operational-artifact case, every
+> malformed-request case and every plan-revision case.
 > Field names, status codes and the objective vector stay the same for all of 1.x.
 > Read [GUARANTEES.md](https://github.com/packvium/packvium-python/blob/main/docs/GUARANTEES.md)
 > before relying on a result.
@@ -25,6 +26,7 @@ matches the reference result byte for byte.
 - [Commerce](#commerce)
 - [Execution plans](#execution-plans)
 - [Operational artifacts](#operational-artifacts)
+- [Fixed placements and plan revisions](#fixed-placements-and-plan-revisions)
 - [Operator locks](#operator-locks)
 - [Scenario comparison, recommendations and holdout replay](#scenario-comparison-recommendations-and-holdout-replay)
 - [Command line](#command-line)
@@ -38,7 +40,7 @@ matches the reference result byte for byte.
 ## Install
 
 ```bash
-dotnet add package Packvium --version 1.3.0
+dotnet add package Packvium --version 1.4.0
 ```
 
 The package targets **.NET 8** (`net8.0`) and **.NET 10** (`net10.0`), and has no runtime
@@ -117,8 +119,13 @@ var result = JsonApi.PackFromJson(request);
 Console.WriteLine(PythonJson.Dumps(result, sortKeys: true, indent: 2));
 ```
 
-A malformed request throws, with the reference engine's message, before any search runs.
-`container.pallet_overhang_limit` is reserved in the schema and not implemented by any
+A malformed request throws `InvalidRequestException` (an `ArgumentException`) before any
+search runs. `Code` is `invalid_request`, `Reason` one of a closed set every engine shares
+(`missing_field`, `wrong_type`, `below_minimum`, `above_maximum`, `negative_measure`,
+`invalid_unit`, `duplicate_id`, `not_allowed`, `invalid_value`), `Field` the RFC 6901 pointer to
+the bad value, and the message the same text in every engine:
+`invalid_request: /items/0/quantity: must be at least 1`. Every `minimum` of the request schema
+is a floor, and no length or weight may be negative. `container.pallet_overhang_limit` is reserved in the schema and not implemented by any
 engine, so a request that sets it is refused with `unsupported_feature` rather than packed
 as if it were absent.
 
@@ -266,6 +273,44 @@ result's boxes; the artifact never invents one. Anything an artifact cannot carr
 format by name, and a value with more than one spelling across languages (a boolean or a float
 in a printed field) instead of guessing.
 
+## Fixed placements and plan revisions
+
+A request's `fixed_placements` are items already in a known place: loaded, or locked there by an
+operator. Each names an item type, a container type and instance (from 1), a position and an
+orientation. Fixed items take the first instances of their type, their containers open first
+and are kept, and the solve packs the rest around them, with their weight, support and top load
+counted. They come back with `"fixed": true`. A fixed set that cannot hold on its own is refused
+with `FixedPlacementException` (a subclass of `InvalidRequestException`, code
+`invalid_fixed_placement`) before any search, and the independent validator refuses an answer
+that drops, moves or invents one.
+
+A plan revision (`packvium-plan-revision/v1`) records what differed from an approved plan, as an
+append-only chain hashed with SHA-256 over RFC 8785 bytes. Its events are `item_missing`,
+`container_substituted`, `placement_locked` and `placement_verified`; locks and verified
+placements become fixed placements of the derived request, and the replan is an ordinary solve
+of it. Building a revision calls no solver, validator or clock, so every engine emits the same
+bytes:
+
+```csharp
+using Packvium.Artifacts;
+using Packvium.Revisions;
+using Packvium.Serialization;
+
+var root = PlanRevision.Root(JsonReader.Parse(requestJson));
+var approved = OperationalArtifact.Build(root.Require("request"), JsonApi.PackFromJson(root.Require("request")));
+var revision = PlanRevision.Derive(root, approved, JsonReader.Parse("""
+    [{"sequence": 1, "type": "item_missing", "item_type": "slab", "quantity": 1}]
+    """));
+var replanned = JsonApi.PackFromJson(revision.Require("request"));        // an ordinary solve
+var issues = PlanRevision.VerifyChain(new JsonArray([root, revision]));   // empty for an intact chain
+string digest = PlanRevision.Digest(revision);                            // "sha256:..."
+```
+
+A revision that cannot be built throws `PlanRevisionException`, whose `Code` is one every engine
+reports: `invalid_revision`, `invalid_event`, `event_conflict`, `invalid_artifact`, or a
+canonical-form code. `RevisionOutcomes.Record` in `Packvium.Intelligence` appends a revision's
+events to an `OutcomeLedger`, where holdout replay already reads them.
+
 ## Operator locks
 
 An operator who is standing at the dock can pin a placement: *this printer stays here*.
@@ -364,12 +409,13 @@ echo '{"items":[{"id":"box","quantity":8,"dimensions":{"length":"50","width":"50
 way and prints the canonical result document. A malformed case exits 1 with `input error:` on
 standard error. A rejection is a normal answer and exits 0.
 
-`Packvium.Cli artifacts` is the batch probe of the release's artifact conformance run: a JSON
-list of cases on standard input, one JSON line per case on standard output.
+`Packvium.Cli artifacts` is the batch probe of the release's artifact conformance run, and
+`Packvium.Cli revisions` that of its plan-revision and malformed-request runs: a JSON list of
+cases on standard input, one JSON line per case on standard output.
 
 ## Examples
 
-[`examples/`](https://github.com/packvium/packvium-dotnet/tree/main/examples) has twelve
+[`examples/`](https://github.com/packvium/packvium-dotnet/tree/main/examples) has thirteen
 examples, one file each, that you can read from top to bottom. Run one by name, or all of
 them in turn:
 
@@ -397,6 +443,7 @@ have failed you.
 | [`Execution.cs`](https://github.com/packvium/packvium-dotnet/blob/main/examples/Execution.cs) | `-- execution` | A result turned into a work order: facts kept apart from screen text, a step order that is supplied or honestly absent, the same bytes in every engine, and an operator lock that is honoured, refused, or rejected as a contradiction. |
 | [`Intelligence.cs`](https://github.com/packvium/packvium-dotnet/blob/main/examples/Intelligence.cs) | `-- intelligence` | Prove a carton change is better before publishing it: two scenarios compared order by order, a proposal or an explicit refusal to make one, and a replay on history the proposal has never seen. |
 | [`Artifacts.cs`](https://github.com/packvium/packvium-dotnet/blob/main/examples/Artifacts.cs) | `-- artifacts` | Hand a result to a warehouse system with no engine: one document with the request and solver inside, a CSV to import, a work order to print, and a refusal of a format it does not know. |
+| [`Revisions.cs`](https://github.com/packvium/packvium-dotnet/blob/main/examples/Revisions.cs) | `-- revisions` | Replan a half-loaded job: a missing slab and a locked cube recorded against the approved plan, a replan that keeps the cube where it is, and an audit that notices an edited chain. |
 
 The test suite runs every example and compares its output with what the Python example of
 the same release prints. The only lines allowed to differ are listed in the test's
@@ -426,15 +473,18 @@ The guarantees are the same as in every Packvium engine, and
 [GUARANTEES.md](https://github.com/packvium/packvium-python/blob/main/docs/GUARANTEES.md) states
 them. This port adds the following:
 
-- **Every corpus case passes.** All 398 packing fixtures of the 1.3.0 conformance corpus match
+- **Every corpus case passes.** All 400 packing fixtures of the 1.4.0 conformance corpus match
   the reference engine's canonical result byte for byte, all 55 commerce cases pass the
-  release's own commerce harness, the execution plan of every one of the 398 golden results is
+  release's own commerce harness, the execution plan of every one of the 400 golden results is
   byte-identical to the reference adapter's, all six operator-lock scenarios of the release
-  pass, and all 419 operational-artifact cases (398 results and 21 edge cases) give the
-  reference's JSON, CSV and HTML byte for byte, or its error code.
+  pass, all 421 operational-artifact cases (400 results and 21 edge cases) give the
+  reference's JSON, CSV and HTML byte for byte, or its error code, all 122 malformed requests
+  are refused with the reference's code, reason, field and message, and all 102 plan-revision
+  cases give the reference's bytes, digest, audit or refusal.
 - **Conformance is checked by the release's own harness.** The command-line program is driven
   through that harness, the reference's independent result validator accepts every result, and
-  the release's artifact schema and reference consumer accept every artifact.
+  the release's artifact schema and reference consumer accept every artifact, and its
+  revision schema every revision.
 
 Full conformance runs in the Packvium suite repository, which holds the shared corpus. In this
 repository, `dotnet test` runs the unit tests, the CLI tests and every example against the
@@ -457,7 +507,7 @@ conformance corpus reaches:
 ## Versioning
 
 The package follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and each
-version matches the Packvium release of the same number: 1.3.0 here passes the 1.3.0
+version matches the Packvium release of the same number: 1.4.0 here passes the 1.4.0
 conformance corpus. The request and result formats, status codes and the objective vector are
 frozen for all of 1.x. What changed in each release is in the
 [changelog](https://github.com/packvium/packvium-dotnet/blob/main/CHANGELOG.md).

@@ -46,7 +46,8 @@ public static class ArtifactExports
 
     private static readonly char[] CsvSpecial = [',', '"', '\r', '\n'];
 
-    public static string Json(JsonValue artifact) => OperationalArtifact.CanonicalJson(Require(artifact));
+    /// <summary>The artifact's canonical bytes; a document of another format is refused first. O(n + k log k).</summary>
+    public static string Json(JsonValue artifact) => OperationalArtifact.CanonicalJson(RequireFormat(artifact));
 
     public static string Csv(JsonValue artifact)
     {
@@ -234,7 +235,10 @@ public static class ArtifactExports
     /// the artifact through its canonical form, so it is a function of the bytes every engine
     /// agrees on and not of how this one happens to hold them in memory.
     /// </summary>
-    private static JsonObject Require(JsonValue artifact)
+    private static JsonObject Require(JsonValue artifact) =>
+        (JsonObject)JsonReader.Parse(OperationalArtifact.CanonicalJson(RequireFormat(artifact)));
+
+    private static JsonValue RequireFormat(JsonValue artifact)
     {
         ArgumentNullException.ThrowIfNull(artifact);
         if ((artifact as JsonObject)?.Get("format") is not JsonString { Value: OperationalArtifact.Format })
@@ -242,7 +246,7 @@ public static class ArtifactExports
             throw new OperationalArtifactException("unknown_format",
                 $"cannot export this format; this exporter reads {OperationalArtifact.Format}");
         }
-        return (JsonObject)JsonReader.Parse(OperationalArtifact.CanonicalJson(artifact));
+        return artifact;
     }
 
     /// <summary>

@@ -38,6 +38,29 @@ public static class BeamPack
 {
     private sealed record Node(ContainerState State, ImmutableArray<ItemInstance> Unplaced);
 
+    /// <summary>
+    /// The items of later batches, reduced to what the unpacked bound reads: their volumes and
+    /// weights in ascending order, sorted once per layer instead of once per ranked node.
+    /// <see cref="Volumes"/> is null under nesting and <see cref="Weights"/> without a payload limit.
+    /// </summary>
+    private sealed record Future(Int128[]? Volumes, Int128[]? Weights, int Count)
+    {
+        public static readonly Future None = new(null, null, 0);
+
+        public static Future Of(IReadOnlyList<ItemInstance> items, bool hasMaxPayload)
+        {
+            if (items.Count == 0)
+            {
+                return None;
+            }
+            var volumes = items.Any(item => item.Item.NestingHeight is not null)
+                ? null
+                : items.Select(item => item.Dimensions.Volume).Order().ToArray();
+            var weights = hasMaxPayload ? items.Select(item => (Int128)item.Weight.Ticks).Order().ToArray() : null;
+            return new Future(volumes, weights, items.Count);
+        }
+    }
+
     public static IReadOnlyList<IPlacementConstraint> DefaultConstraints(PackingConfig config,
         IReadOnlyList<IPlacementConstraint>? custom = null) =>
     [
@@ -81,7 +104,7 @@ public static class BeamPack
                     expansions.Add(node with { Unplaced = [.. node.Unplaced, .. batch] });
                 }
             }
-            beam = [.. expansions.OrderBy(node => NodeKey(node, []))];
+            beam = [.. expansions.OrderBy(node => NodeKey(node, Future.None))];
             beam = [.. beam.Take((int)Math.Min(branchWidth, int.MaxValue))];
             if (exhausted)
             {
@@ -101,7 +124,7 @@ public static class BeamPack
         List<Node> beam = [new(new ContainerState(container, sequence), [])];
         var incumbent = GreedyRollout(container, sequence, batches, config, constraints, stats, deadline);
         // Kept beside the incumbent, so each expansion costs one key, not two.
-        var incumbentKey = NodeKey(incumbent, []);
+        var incumbentKey = NodeKey(incumbent, Future.None);
         for (var position = 0; position < batches.Count; position++)
         {
             var batch = batches[position];
@@ -123,13 +146,15 @@ public static class BeamPack
                 expansions.Add(node with { Unplaced = [.. node.Unplaced, .. batch] });
             }
             ImmutableArray<ItemInstance> future = [.. batches.Skip(position + 1).SelectMany(later => later)];
+            var precomputed = Future.Of(future, container.MaxPayload is not null);
             foreach (var expansion in expansions)
             {
-                var candidate = new Node(expansion.State, [.. expansion.Unplaced, .. future]);
-                var candidateKey = NodeKey(candidate, []);
+                // With no future the bound is the unplaced count, so the key needs no node built
+                // unless it wins.
+                var candidateKey = NodeKey(expansion.State, expansion.Unplaced.Length + future.Length, Future.None);
                 if (candidateKey < incumbentKey)
                 {
-                    incumbent = candidate;
+                    incumbent = new Node(expansion.State, [.. expansion.Unplaced, .. future]);
                     incumbentKey = candidateKey;
                 }
             }
@@ -137,14 +162,14 @@ public static class BeamPack
             {
                 break;
             }
-            beam = [.. expansions.OrderBy(node => NodeKey(node, future)).Take((int)Math.Min(width, int.MaxValue))];
+            beam = [.. expansions.OrderBy(node => NodeKey(node, precomputed)).Take((int)Math.Min(width, int.MaxValue))];
             if (exhausted)
             {
                 return new SingleContainerSolution(incumbent.State, incumbent.Unplaced, false, deadline.Expired);
             }
         }
-        var completed = beam.Count > 0 ? beam.MinBy(node => NodeKey(node, []))! : incumbent;
-        var chosen = incumbentKey < NodeKey(completed, []) ? incumbent : completed;
+        var completed = beam.Count > 0 ? beam.MinBy(node => NodeKey(node, Future.None))! : incumbent;
+        var chosen = incumbentKey < NodeKey(completed, Future.None) ? incumbent : completed;
         return new SingleContainerSolution(chosen.State, chosen.Unplaced);
     }
 
@@ -197,46 +222,47 @@ public static class BeamPack
     /// The reference <c>_node_key</c>: the optimistic unpacked bound, then unplaced count, more
     /// placements, lower stack, more used volume, and the placement signature as the final tie-break.
     /// </summary>
-    private static SortKey NodeKey(Node node, IReadOnlyList<ItemInstance> future)
+    private static SortKey NodeKey(Node node, Future future) => NodeKey(node.State, node.Unplaced.Length, future);
+
+    private static SortKey NodeKey(ContainerState state, int unplacedCount, Future future)
     {
-        var state = node.State;
         var signature = string.Join("|", state.Placements.Select(p =>
             $"{p.Instance.Id}@{p.EnvelopeOrigin.X},{p.EnvelopeOrigin.Y},{p.EnvelopeOrigin.Z}"));
-        return SortKey.Of(UnpackedLowerBound(state, node.Unplaced, future), node.Unplaced.Length,
+        return SortKey.Of(UnpackedLowerBound(state, unplacedCount, future), unplacedCount,
             -state.Placements.Count, state.MaxZ, -state.UsedVolumeTicks, signature);
     }
 
     /// <summary>
     /// An admissible lower bound on final unpacked cardinality from volume and weight alone; the
-    /// volume half is disabled for nesting, whose nominal volumes are not additive.
+    /// volume half is disabled for nesting, whose nominal volumes are not additive. O(f) for f
+    /// future items, their costs already sorted.
     /// </summary>
-    private static long UnpackedLowerBound(ContainerState state, ImmutableArray<ItemInstance> unplaced,
-        IReadOnlyList<ItemInstance> future)
+    private static long UnpackedLowerBound(ContainerState state, int unplacedCount, Future future)
     {
         if (future.Count == 0)
         {
-            return unplaced.Length;
+            return unplacedCount;
         }
         long possible = future.Count;
-        if (!future.Any(item => item.Item.NestingHeight is not null))
+        if (future.Volumes is { } volumes)
         {
             var freeVolume = Int128.Max(0, state.Container.InnerDimensions.Volume - state.UsedVolumeTicks);
-            possible = Math.Min(possible, MaximumCount(future.Select(item => item.Dimensions.Volume), freeVolume));
+            possible = Math.Min(possible, CountWithCapacity(volumes, freeVolume));
         }
-        if (state.Container.MaxPayload is { } payload)
+        if (future.Weights is { } weights && state.Container.MaxPayload is { } payload)
         {
             Int128 freeWeight = Math.Max(0, payload.Ticks - state.PayloadTicks);
-            possible = Math.Min(possible, MaximumCount(future.Select(item => (Int128)item.Weight.Ticks), freeWeight));
+            possible = Math.Min(possible, CountWithCapacity(weights, freeWeight));
         }
-        return unplaced.Length + future.Count - possible;
+        return unplacedCount + future.Count - possible;
     }
 
-    /// <summary>Cheapest units first: an optimistic count for one additive resource.</summary>
-    private static long MaximumCount(IEnumerable<Int128> costs, Int128 capacity)
+    /// <summary>Cheapest units first, over ascending costs: an optimistic count for one additive resource.</summary>
+    private static long CountWithCapacity(Int128[] sortedCosts, Int128 capacity)
     {
         Int128 used = 0;
         long count = 0;
-        foreach (var cost in costs.Order())
+        foreach (var cost in sortedCosts)
         {
             if (used + cost > capacity)
             {

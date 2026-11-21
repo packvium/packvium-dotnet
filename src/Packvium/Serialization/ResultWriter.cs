@@ -126,14 +126,25 @@ public static class ResultWriter
         return Object([.. fields]);
     }
 
-    private static JsonObject Placement(Placement placement, string lengthUnit, string weightUnit) => Object(
-        ("item_id", Text(placement.Instance.Id)),
-        ("item_type", Text(placement.Instance.Item.Id)),
-        ("position", Point(placement.Position, lengthUnit)),
-        ("dimensions", Dimensions(placement.Dimensions, lengthUnit)),
-        ("orientation", Text(placement.Rotation.Value())),
-        ("support_ratio", Text(DecimalRendering.FormatFixed(placement.SupportRatio, 6))),
-        ("top_load", Weight(placement.TopLoad, weightUnit)));
+    private static JsonObject Placement(Placement placement, string lengthUnit, string weightUnit)
+    {
+        List<(string, JsonValue)> fields =
+        [
+            ("item_id", Text(placement.Instance.Id)),
+            ("item_type", Text(placement.Instance.Item.Id)),
+            ("position", Point(placement.Position, lengthUnit)),
+            ("dimensions", Dimensions(placement.Dimensions, lengthUnit)),
+            ("orientation", Text(placement.Rotation.Value())),
+            ("support_ratio", Text(DecimalRendering.FormatFixed(placement.SupportRatio, 6))),
+            ("top_load", Weight(placement.TopLoad, weightUnit)),
+        ];
+        // Absent unless true, so a request without fixed placements keeps its bytes.
+        if (placement.Fixed)
+        {
+            fields.Add(("fixed", new JsonBool(true)));
+        }
+        return Object([.. fields]);
+    }
 
     private static JsonObject Unpacked(UnpackedItem item) => Object(
         ("item_id", Text(item.Instance.Id)),

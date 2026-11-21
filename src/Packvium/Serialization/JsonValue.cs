@@ -61,6 +61,12 @@ public sealed record JsonObject : JsonValue
     /// <summary><c>dict.get(key)</c> with JSON <c>null</c> read as absent, as <c>raw.get(k) is None</c> does.</summary>
     public JsonValue? GetPresent(string key) => Get(key) is JsonNull ? null : Get(key);
 
+    /// <summary>This object with <paramref name="key"/> set to <paramref name="value"/>, in place if present, else appended.</summary>
+    public JsonObject With(string key, JsonValue value) =>
+        new(Contains(key)
+            ? Members.Select(member => member.Key == key ? new KeyValuePair<string, JsonValue>(key, value) : member)
+            : Members.Append(new KeyValuePair<string, JsonValue>(key, value)));
+
     /// <summary><c>dict[key]</c>: the value, or Python's <c>KeyError</c>.</summary>
     public JsonValue Require(string key) =>
         values.TryGetValue(key, out var value) ? value : throw new KeyNotFoundException($"'{key}'");

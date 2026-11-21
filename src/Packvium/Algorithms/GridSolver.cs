@@ -124,7 +124,7 @@ public sealed class GridSolver : ISingleContainerSolver
 
     private static bool LatticeApplies(Container container, IReadOnlyList<ItemInstance> items)
     {
-        if (container.Obstacles.Length > 0 || items.Count == 0 || !Supports(items))
+        if (container.Obstacles.Length > 0 || container.Preloaded.Length > 0 || items.Count == 0 || !Supports(items))
         {
             return false;
         }
