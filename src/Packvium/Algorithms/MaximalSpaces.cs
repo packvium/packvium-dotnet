@@ -82,12 +82,21 @@ public static class MaximalSpaces
         return result;
     }
 
+    /// <summary>
+    /// Whether another extent contains <c>extents[index]</c>, for extents ordered by origin z. A
+    /// container starts at or below what it contains, so the scan stops at the first extent that
+    /// starts higher: O(prefix) instead of O(s), with no index to build.
+    /// </summary>
     private static bool Dominated(List<Bound> extents, int index)
     {
         var e = extents[index];
         for (var position = 0; position < extents.Count; position++)
         {
             var other = extents[position];
+            if (other.Z1 > e.Z1)
+            {
+                return false;
+            }
             if (position != index && other.X1 <= e.X1 && other.Y1 <= e.Y1 && other.Z1 <= e.Z1
                 && e.X2 <= other.X2 && e.Y2 <= other.Y2 && e.Z2 <= other.Z2)
             {

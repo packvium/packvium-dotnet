@@ -68,6 +68,15 @@ public sealed class RequestRulesTests
             """[{"id": "o", "dimensions": {"length": "1", "width": "1"}}]"""),
         ["profile-unknown"] = d => d["configuration"]!["solver_profile"] = "fastest",
         ["restarts-zero"] = d => d["configuration"]!["effort_budget"] = Width("""{"max_restarts": 0}"""),
+        ["configuration-keys-unknown"] = d =>
+        {
+            d["configuration"]!["top_k"] = 2;
+            d["configuration"]!["profile"] = "balanced";
+        },
+        ["effort-key-unknown"] = d => d["configuration"]!["effort_budget"] = Width("""{"max_nodes": 1}"""),
+        ["parallel"] = d => d["configuration"]!["parallel"] = true,
+        ["objective-unknown"] = d => d["configuration"]!["objective"] = "cheapest",
+        ["access-direction-unknown"] = d => Container(d)["access_directions"] = Width("""["upwards"]"""),
     };
 
     public static TheoryData<string, string, string, string> Malformed() => new()
@@ -100,6 +109,13 @@ public sealed class RequestRulesTests
         { "obstacle-height-missing", "missing_field", "/containers/0/obstacles/0/dimensions/height", "is required" },
         { "profile-unknown", "not_allowed", "/configuration/solver_profile", "must be one of [\"fast\",\"balanced\",\"quality\",\"exact_small\"]" },
         { "restarts-zero", "below_minimum", "/configuration/effort_budget/max_restarts", "must be at least 1" },
+        { "configuration-keys-unknown", "not_allowed", "/configuration/profile", "is not a known field" },
+        { "effort-key-unknown", "not_allowed", "/configuration/effort_budget/max_nodes", "is not a known field" },
+        { "parallel", "not_allowed", "/configuration/parallel", "is not a known field" },
+        { "objective-unknown", "not_allowed", "/configuration/objective",
+            "must be one of [\"default\",\"lowest_cost\",\"shipping_cost\",\"lowest_landed_cost\",\"open_dimension_height\",\"maximum_value\"]" },
+        { "access-direction-unknown", "not_allowed", "/containers/0/access_directions/0",
+            "must be one of [\"+x\",\"-x\",\"+y\",\"-y\",\"+z\",\"-z\"]" },
     };
 
     [Theory]
@@ -233,5 +249,41 @@ public sealed class RequestRulesTests
         Assert.Equal(Measures.Weight(new JsonInteger(5)), Measures.Weight(new JsonFloat(5.0)));
         Assert.Throws<ArgumentException>(() => Measures.Length(new JsonFloat(1.5), "mm"));
         Assert.Throws<ArgumentException>(() => Measures.Weight(new JsonFloat(1.5)));
+    }
+
+    [Fact]
+    public void AnEmptyTagLimitsObjectIsAccepted()
+    {
+        var data = Request();
+        Container(data)["tag_limits"] = new Node();
+        RequestRules.Check(Parse(data));
+    }
+
+    /// <summary>The known configuration keys are the schema's, where the suite's schema is present.</summary>
+    [Fact]
+    public void TheKnownConfigurationFieldsAreTheSchemas()
+    {
+        var schemaPath = System.IO.Path.Combine(Tests.Conformance.ConformanceTests.CorpusDirectory(), "conformance", "schema",
+            "packing-request.schema.json");
+        if (!System.IO.File.Exists(schemaPath))
+        {
+            Assert.Skip(Tests.Conformance.ConformanceTests.CorpusAbsent(schemaPath));
+        }
+        var configuration = JsonNode.Parse(System.IO.File.ReadAllText(schemaPath))!["properties"]!["configuration"]!;
+        Assert.False(configuration["additionalProperties"]!.GetValue<bool>());
+        var data = Request();
+        foreach (var (name, _) in configuration["properties"]!.AsObject())
+        {
+            data["configuration"]![name] = null;
+        }
+        data["configuration"]!["solver_profile"] = "fast";
+        var budget = new Node();
+        foreach (var (name, _) in configuration["properties"]!["effort_budget"]!["properties"]!.AsObject())
+        {
+            budget[name] = 1_000_000;
+        }
+        data["configuration"]!["effort_budget"] = budget;
+        RequestRules.Check(Parse(data));
+        Assert.NotNull(JsonApi.PackFromJson(Parse(data)));
     }
 }

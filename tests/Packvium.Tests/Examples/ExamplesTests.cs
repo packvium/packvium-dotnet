@@ -22,9 +22,8 @@ public sealed partial class ExamplesTests
     /// <summary>
     /// The only lines allowed to differ from the Python output, each because it is about the
     /// language rather than the packing: a file name, a command line, Python's spelling of
-    /// null, and a refusal from Python's internal staging guard, which has no counterpart on
-    /// the 1.0.0 surface of the other engines. A null replacement means the Python line has
-    /// no .NET counterpart.
+    /// null, an exception type's name, and the engine a refusal names. A null replacement means
+    /// the Python line has no .NET counterpart.
     /// </summary>
     private static readonly Dictionary<string, (string Python, string? Dotnet)[]> LanguageLines = new(StringComparer.Ordinal)
     {
@@ -35,8 +34,8 @@ public sealed partial class ExamplesTests
         ],
         ["serialization"] =
         [
-            ("  what one looks like, from an engine that is not: unsupported_feature: the Python engine does not yet implement item.shape_type=convex_hull; the request was rej",
-             null),
+            ("  sending one anyway: unsupported_feature: the Python engine does not yet implement container.pallet_overhang_limit; the r",
+             "  sending one anyway: unsupported_feature: the .NET engine does not yet implement container.pallet_overhang_limit; the req"),
             ("the CLI takes exactly the document above:  echo '...' | python3 -m packvium",
              "the CLI takes exactly the document above:  echo '...' | Packvium.Cli"),
         ],
@@ -79,6 +78,20 @@ public sealed partial class ExamplesTests
         [
             ("  revision 0, parent None",
              "  revision 0, parent null"),
+        ],
+        ["errors"] =
+        [
+            ("  an unknown objective: InvalidRequestError",
+             "  an unknown objective: InvalidRequestException"),
+            ("  an unknown door: InvalidRequestError",
+             "  an unknown door: InvalidRequestException"),
+            ("  Both are `ValueError`s, so a handler that ends with `except ValueError` still turns",
+             "  Both are `ArgumentException`s, so a handler that ends with `catch (ArgumentException)` still turns"),
+        ],
+        ["reproducibility"] =
+        [
+            ("  `time_limit`, and `replay_level` refuses to promise a replay.",
+             "  `time_limit`, and `ReplayLevel` refuses to promise a replay."),
         ],
     };
 
@@ -168,7 +181,9 @@ public sealed partial class ExamplesTests
     [GeneratedRegex("(\"(?:duration_ms|elapsed_ms)\":\\s*)\\d+|(\\bin )\\d+( ms\\b)")]
     private static partial Regex Timing();
 
-    private static string Capitalised(string name) => char.ToUpperInvariant(name[0]) + name[1..];
+    /// <summary>The example's file name: <c>fixed_placements</c> is <c>FixedPlacements</c>.</summary>
+    private static string Capitalised(string name) =>
+        string.Concat(name.Split('_').Select(part => char.ToUpperInvariant(part[0]) + part[1..]));
 
     private static string RepositoryRoot()
     {

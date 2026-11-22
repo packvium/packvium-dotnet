@@ -42,7 +42,7 @@ public sealed partial class OperationalArtifactTests
         <tr><td>Replay</td><td>exact</td></tr>
         <tr><td>Solver</td><td>balanced / extreme_point / seed 3</td></tr>
         <tr><td>Catalogs</td><td>&mdash;</td></tr>
-        <tr><td>Packvium</td><td>1.4.0</td></tr>
+        <tr><td>Packvium</td><td>1.5.0</td></tr>
         </table>
         <section class="container">
         <h2>Container 1: crate</h2>
@@ -189,7 +189,7 @@ public sealed partial class OperationalArtifactTests
     {
         var artifact = Build();
         Assert.Equal(OperationalArtifact.Format, ((JsonString)artifact.Require("format")).Value);
-        Assert.Equal("1.4.0", ((JsonString)artifact.Require("suite_version")).Value);
+        Assert.Equal("1.5.0", ((JsonString)artifact.Require("suite_version")).Value);
         var provenance = (JsonObject)artifact.Require("provenance");
         Assert.Same(Request, provenance.Require("request"));
         var solver = (JsonObject)provenance.Require("solver");
@@ -205,6 +205,18 @@ public sealed partial class OperationalArtifactTests
         var unknown = Build(Without(Result(), "algorithm"));
         Assert.Equal(("not_guaranteed", "provenance.solver"), Replay(unknown));
         Assert.Contains("<tr><td>Solver</td><td>&mdash;</td></tr>", ArtifactExports.WorkOrderHtml(unknown), StringComparison.Ordinal);
+    }
+
+    /// <summary><c>ReplayLevel</c> answers without building the artifact, by the same rule.</summary>
+    [Fact]
+    public void ReplayLevelIsThePromiseTheArtifactWouldMake()
+    {
+        var stopped = Result(text => text.Replace("\"time_limit_reached\": false", "\"time_limit_reached\": true", StringComparison.Ordinal));
+        foreach (var result in new[] { Result(), stopped, Without(Result(), "algorithm") })
+        {
+            Assert.Equal(Replay(Build(result)).Level, OperationalArtifact.ReplayLevel(result));
+        }
+        Assert.Equal("exact", OperationalArtifact.ReplayLevel(Result()));
     }
 
     [Fact]

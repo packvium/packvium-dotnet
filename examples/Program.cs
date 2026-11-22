@@ -28,6 +28,12 @@ public static class Program
         ["intelligence"] = Intelligence.Run,
         ["artifacts"] = Artifacts.Run,
         ["revisions"] = Revisions.Run,
+        ["rebalancing"] = Rebalancing.Run,
+        ["reproducibility"] = Reproducibility.Run,
+        ["fixed_placements"] = FixedPlacements.Run,
+        ["limits"] = Limits.Run,
+        ["trucking"] = Trucking.Run,
+        ["errors"] = Errors.Run,
     };
 
     public static int Main(string[] args)

@@ -8,8 +8,8 @@ binding over another one. It accepts the same requests and returns the same resu
 Python and PHP engines. Its tests run the shared conformance corpus, and every result
 matches the reference result byte for byte.
 
-> **Version 1.4.0.** This release corresponds to Packvium 1.4.0 in the other languages, and
-> its tests run the 1.4.0 conformance corpus: every packing fixture, every commerce case,
+> **Version 1.5.0.** This release corresponds to Packvium 1.5.0 in the other languages, and
+> its tests run the 1.5.0 conformance corpus: every packing fixture, every commerce case,
 > every execution plan, every operator-lock scenario, every operational-artifact case, every
 > malformed-request case and every plan-revision case.
 > Field names, status codes and the objective vector stay the same for all of 1.x.
@@ -27,6 +27,7 @@ matches the reference result byte for byte.
 - [Execution plans](#execution-plans)
 - [Operational artifacts](#operational-artifacts)
 - [Fixed placements and plan revisions](#fixed-placements-and-plan-revisions)
+- [Weight rebalancing](#weight-rebalancing)
 - [Operator locks](#operator-locks)
 - [Scenario comparison, recommendations and holdout replay](#scenario-comparison-recommendations-and-holdout-replay)
 - [Command line](#command-line)
@@ -40,7 +41,7 @@ matches the reference result byte for byte.
 ## Install
 
 ```bash
-dotnet add package Packvium --version 1.4.0
+dotnet add package Packvium --version 1.5.0
 ```
 
 The package targets **.NET 8** (`net8.0`) and **.NET 10** (`net10.0`), and has no runtime
@@ -125,9 +126,38 @@ search runs. `Code` is `invalid_request`, `Reason` one of a closed set every eng
 `invalid_unit`, `duplicate_id`, `not_allowed`, `invalid_value`), `Field` the RFC 6901 pointer to
 the bad value, and the message the same text in every engine:
 `invalid_request: /items/0/quantity: must be at least 1`. Every `minimum` of the request schema
-is a floor, and no length or weight may be negative. `container.pallet_overhang_limit` is reserved in the schema and not implemented by any
-engine, so a request that sets it is refused with `unsupported_feature` rather than packed
-as if it were absent.
+is a floor, and no length or weight may be negative.
+
+`configuration` and its `effort_budget` are closed: a key the schema does not declare, such as
+`profile` for `solver_profile` or `top_k` for `alternatives`, is refused as `not_allowed` with
+its pointer rather than ignored, and so is `parallel`. When several are unknown, the first in
+code-point order is named. An unknown `objective` or access direction is refused the same way:
+
+```csharp
+using Packvium.Domain;
+using Packvium.Serialization;
+
+try
+{
+    JsonApi.PackFromJson(JsonReader.Parse("""
+        {"configuration": {"profile": "fast"},
+         "items": [{"id": "box", "dimensions": {"length": "50", "width": "50", "height": "50"}}],
+         "containers": [{"id": "carton", "inner_dimensions": {"length": "100", "width": "100", "height": "100"}}]}
+        """));
+}
+catch (InvalidRequestException refusal)
+{
+    Console.WriteLine($"{refusal.Reason} {refusal.Field}");   // not_allowed /configuration/profile
+    Console.WriteLine(refusal.Message);   // invalid_request: /configuration/profile: is not a known field
+}
+```
+
+A key the reader does not recognise on an item or a container is still ignored.
+`container.pallet_overhang_limit` is reserved in the schema and not implemented by any engine,
+so a request that sets it is refused with `UnsupportedFeatureException` (`unsupported_feature`)
+rather than packed as if it were absent. The other refusals a caller may want to catch by type
+are public too: `UnknownSolverException`, `UnknownObjectiveException` and `PolicyException`, each
+an `ArgumentException`.
 
 `JsonApi.PackFromJson(request, extensions)` also takes an `ExtensionRegistry` of your own
 rules. They are added after the rules the request's `policy` block compiles to, never put in
@@ -306,10 +336,41 @@ var issues = PlanRevision.VerifyChain(new JsonArray([root, revision]));   // emp
 string digest = PlanRevision.Digest(revision);                            // "sha256:..."
 ```
 
+`OperationalArtifact.ReplayLevel(result)` answers the replay promise an artifact of a result would
+make, `exact` or `not_guaranteed`, without building the artifact.
+
 A revision that cannot be built throws `PlanRevisionException`, whose `Code` is one every engine
 reports: `invalid_revision`, `invalid_event`, `event_conflict`, `invalid_artifact`, or a
 canonical-form code. `RevisionOutcomes.Record` in `Packvium.Intelligence` appends a revision's
 events to an `OutcomeLedger`, where holdout replay already reads them.
+
+## Weight rebalancing
+
+`WeightRebalance.Rebalance` evens out the payload across the containers of a finished packing. It
+is a separate step you call after `Packer.Pack`, never part of a solve: each round moves one item
+from the heaviest container to a lighter one, and keeps the move only if the item has a real place
+there and the whole packing still passes the independent validator. It never adds a container,
+drops an item or moves a fixed placement, and it stops when no single move narrows the spread, or
+after `maxMoves`:
+
+```csharp
+using Packvium.Domain;
+using Packvium.Packing;
+using Packvium.Units;
+
+Item[] items = [new("paint", Dimensions.Mm("300", "300", "380"), Weight.Parse("24 kg"), 16, keepUpright: true)];
+Container[] pallets = [new("pallet", Dimensions.Mm("1200", "800", "1000"), maxPayload: Weight.Parse("300 kg"))];
+var packed = new Packer().Pack(items, pallets);
+var rebalanced = WeightRebalance.Rebalance(new PackingRequest(items, pallets), packed.Containers, packed.Unpacked);
+foreach (var move in rebalanced.Moves)
+{
+    Console.WriteLine($"{move.ItemId}: {move.FromContainerId} -> {move.ToContainerId}");
+}
+```
+
+It is greedy, so the result is more even, not necessarily the most even split possible. Its time
+limit (`timeLimitMs`, one second by default) is a wall clock, so a move search the clock cuts short
+can differ between machines; give it a generous limit when the answer is stored or compared.
 
 ## Operator locks
 
@@ -415,7 +476,7 @@ cases on standard input, one JSON line per case on standard output.
 
 ## Examples
 
-[`examples/`](https://github.com/packvium/packvium-dotnet/tree/main/examples) has thirteen
+[`examples/`](https://github.com/packvium/packvium-dotnet/tree/main/examples) has nineteen
 examples, one file each, that you can read from top to bottom. Run one by name, or all of
 them in turn:
 
@@ -444,12 +505,18 @@ have failed you.
 | [`Intelligence.cs`](https://github.com/packvium/packvium-dotnet/blob/main/examples/Intelligence.cs) | `-- intelligence` | Prove a carton change is better before publishing it: two scenarios compared order by order, a proposal or an explicit refusal to make one, and a replay on history the proposal has never seen. |
 | [`Artifacts.cs`](https://github.com/packvium/packvium-dotnet/blob/main/examples/Artifacts.cs) | `-- artifacts` | Hand a result to a warehouse system with no engine: one document with the request and solver inside, a CSV to import, a work order to print, and a refusal of a format it does not know. |
 | [`Revisions.cs`](https://github.com/packvium/packvium-dotnet/blob/main/examples/Revisions.cs) | `-- revisions` | Replan a half-loaded job: a missing slab and a locked cube recorded against the approved plan, a replan that keeps the cube where it is, and an audit that notices an edited chain. |
+| [`Rebalancing.cs`](https://github.com/packvium/packvium-dotnet/blob/main/examples/Rebalancing.cs) | `-- rebalancing` | Even out two pallets after packing: the moves made, the packing still valid, and a single pallet left as it is. |
+| [`Reproducibility.cs`](https://github.com/packvium/packvium-dotnet/blob/main/examples/Reproducibility.cs) | `-- reproducibility` | The same answer on every machine: a clock-limited search on four simulated hosts, an effort budget that answers alike on all of them, and how to read `termination`. |
+| [`FixedPlacements.cs`](https://github.com/packvium/packvium-dotnet/blob/main/examples/FixedPlacements.cs) | `-- fixed_placements` | A trailer already partly loaded: packed around what is on board, the cost of a pallet left in the middle, and a record that cannot be true. |
+| [`Limits.cs`](https://github.com/packvium/packvium-dotnet/blob/main/examples/Limits.cs) | `-- limits` | A van and cargo bikes: obstacles, `max_items`, tag limits, container eligibility and `max_containers`, and what each refusal proves. |
+| [`Trucking.cs`](https://github.com/packvium/packvium-dotnet/blob/main/examples/Trucking.cs) | `-- trucking` | A van on a three-stop route within its axle ratings: the axle reactions, the unloading and loading orders, and what the driver can reach. |
+| [`Errors.cs`](https://github.com/packvium/packvium-dotnet/blob/main/examples/Errors.cs) | `-- errors` | A refused request turned into a useful answer, the way a web handler would: reason, pointer and message, items in place that cannot be there, and a short load that is not an error. |
 
 The test suite runs every example and compares its output with what the Python example of
 the same release prints. The only lines allowed to differ are listed in the test's
 `LanguageLines` map, because they are about the language rather than the packing: a file or
-command name, how each language spells null, a Python-only refusal that the .NET example
-omits, and section 4 of `execution`, which speaks for this engine rather than for four.
+command name, how each language spells null or names an exception type, the engine named in a
+refusal, and section 4 of `execution`, which speaks for this engine rather than for four.
 
 ## Determinism
 
@@ -473,12 +540,12 @@ The guarantees are the same as in every Packvium engine, and
 [GUARANTEES.md](https://github.com/packvium/packvium-python/blob/main/docs/GUARANTEES.md) states
 them. This port adds the following:
 
-- **Every corpus case passes.** All 400 packing fixtures of the 1.4.0 conformance corpus match
+- **Every corpus case passes.** All 402 packing fixtures of the 1.5.0 conformance corpus match
   the reference engine's canonical result byte for byte, all 55 commerce cases pass the
-  release's own commerce harness, the execution plan of every one of the 400 golden results is
+  release's own commerce harness, the execution plan of every one of the 402 golden results is
   byte-identical to the reference adapter's, all six operator-lock scenarios of the release
-  pass, all 421 operational-artifact cases (400 results and 21 edge cases) give the
-  reference's JSON, CSV and HTML byte for byte, or its error code, all 122 malformed requests
+  pass, all 423 operational-artifact cases (402 results and 21 edge cases) give the
+  reference's JSON, CSV and HTML byte for byte, or its error code, all 131 malformed requests
   are refused with the reference's code, reason, field and message, and all 102 plan-revision
   cases give the reference's bytes, digest, audit or refusal.
 - **Conformance is checked by the release's own harness.** The command-line program is driven
@@ -507,7 +574,7 @@ conformance corpus reaches:
 ## Versioning
 
 The package follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and each
-version matches the Packvium release of the same number: 1.4.0 here passes the 1.4.0
+version matches the Packvium release of the same number: 1.5.0 here passes the 1.5.0
 conformance corpus. The request and result formats, status codes and the objective vector are
 frozen for all of 1.x. What changed in each release is in the
 [changelog](https://github.com/packvium/packvium-dotnet/blob/main/CHANGELOG.md).

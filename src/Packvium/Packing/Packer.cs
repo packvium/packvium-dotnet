@@ -47,7 +47,7 @@ public sealed class Packer(PackingConfig? config = null, ExtensionRegistry? exte
         IEnumerable<FixedPlacement> fixedPlacements)
     {
         var request = new PackingRequest(items, containers, fixedPlacements);
-        RefuseUnpriceableObjective(request);
+        RefuseUnpriceableObjective(request, config);
         var fixedLoad = FixedPlacementAdmission.Admit(request, config.MinimumSupportRatio, config.Clearance,
             config.MaxContainers);
         var deadline = new Deadline(config.TimeLimitMs, clock: clock);
@@ -67,12 +67,7 @@ public sealed class Packer(PackingConfig? config = null, ExtensionRegistry? exte
         var valid = ranked.Where(result => result.Status != PackingStatus.InvalidResult).ToList();
         var selected = valid.Count > 0 ? valid : ranked;
         var best = selected[0];
-        if (ObjectiveScorers.UnpriceableContainer(best.Containers, config) is { } unpriceable)
-        {
-            throw new UnratedWeightException(
-                $"container '{unpriceable.ContainerId}' bills at {unpriceable.Grams} g, above its rate table's "
-                + $"last bracket ({unpriceable.Bound} g); the shipment has no published price");
-        }
+        RefuseUnpriceable(best.Containers, config);
         var alternatives = selected.Skip(1)
             .Where(runner => ObjectiveScorers.UnpriceableContainer(runner.Containers, config) is null)
             .Take((int)Math.Max(0, Math.Min(config.TopK - 1, int.MaxValue)));
@@ -81,7 +76,7 @@ public sealed class Packer(PackingConfig? config = null, ExtensionRegistry? exte
     }
 
     /// <summary>Both weight objectives need the divisor, and landed cost a tariff on every container, before any search.</summary>
-    private void RefuseUnpriceableObjective(PackingRequest request)
+    internal static void RefuseUnpriceableObjective(PackingRequest request, PackingConfig config)
     {
         if (config.Objective is "shipping_cost" or "lowest_landed_cost" && config.DimensionalWeightDivisor is null)
         {
@@ -93,6 +88,17 @@ public sealed class Packer(PackingConfig? config = null, ExtensionRegistry? exte
         {
             throw new UnknownObjectiveException(
                 $"the lowest_landed_cost objective requires a rate_table on every container; '{unrated.Id}' has none");
+        }
+    }
+
+    /// <summary>A finished packing its own tariff cannot price has no published price, and is refused.</summary>
+    internal static void RefuseUnpriceable(IReadOnlyList<PackedContainer> containers, PackingConfig config)
+    {
+        if (ObjectiveScorers.UnpriceableContainer(containers, config) is { } unpriceable)
+        {
+            throw new UnratedWeightException(
+                $"container '{unpriceable.ContainerId}' bills at {unpriceable.Grams} g, above its rate table's "
+                + $"last bracket ({unpriceable.Bound} g); the shipment has no published price");
         }
     }
 

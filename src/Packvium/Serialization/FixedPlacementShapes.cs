@@ -56,7 +56,7 @@ public static class FixedPlacementShapes
             .Order(CodePointComparer.Instance).ToList();
         if (unknown.Count > 0)
         {
-            throw error($"{where} does not carry {Names(unknown)}", field);
+            throw error($"{where} cannot carry {Names(unknown)}", field);
         }
         foreach (var axis in Axes)
         {
@@ -82,7 +82,7 @@ public static class FixedPlacementShapes
         var unknown = entry.Keys.Where(key => !Fields.Contains(key, StringComparer.Ordinal)).Order(CodePointComparer.Instance).ToList();
         if (unknown.Count > 0)
         {
-            throw Malformed($"{where} does not carry {Names(unknown)}", field);
+            throw Malformed($"{where} cannot carry {Names(unknown)}", field);
         }
         var missing = RequiredFields.Where(name => !entry.Contains(name)).ToList();
         if (missing.Count > 0)

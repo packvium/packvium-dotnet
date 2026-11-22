@@ -605,10 +605,8 @@ public sealed class SolverOrchestrator(
             {
                 if (plan.Remaining.IsEmpty || plan.Packed.Length >= maximum)
                 {
-                    if (ScorePlan(plan.Packed, plan.Remaining, config) < ScorePlan(incumbent.Packed, incumbent.Remaining, config))
-                    {
-                        incumbent = plan;
-                    }
+                    // Already weighed against the incumbent when it was created (below), and the
+                    // incumbent only ever improves, so it cannot win now.
                     continue;
                 }
                 foreach (var container in ordered)

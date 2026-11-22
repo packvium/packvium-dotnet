@@ -1,14 +1,36 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
 namespace Packvium.Examples;
 
 /// <summary>
-/// The examples print lists and tuples in Python's notation, so each one's output can be
-/// compared line for line with what the Python example prints.
+/// The examples print lists and tuples in Python's notation, and sections and prose as the Python
+/// examples lay them out, so each one's output can be compared line for line with what the
+/// Python example prints.
 /// </summary>
 internal static class Python
 {
+    private static readonly string Rule = new('=', 78);
+
+    /// <summary>A blank line, then the title between two rules of 78 <c>=</c>.</summary>
+    public static void Section(string title)
+    {
+        Console.WriteLine();
+        Console.WriteLine(Rule);
+        Console.WriteLine(title);
+        Console.WriteLine(Rule);
+    }
+
+    /// <summary>Each line indented by two spaces; an empty line stays empty.</summary>
+    public static void Say(params string[] lines)
+    {
+        foreach (var line in lines)
+        {
+            Console.WriteLine(line.Length == 0 ? string.Empty : $"  {line}");
+        }
+    }
+
     /// <summary><c>['a', 'b']</c></summary>
     public static string List(IEnumerable<string> values) => $"[{string.Join(", ", values.Select(Quote))}]";
 

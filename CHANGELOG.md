@@ -4,6 +4,52 @@ What changed in `Packvium` on NuGet, release by release. The format follows
 [Keep a Changelog](https://keepachangelog.com/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0]
+
+Matches Packvium 1.5.0: all 402 packing fixtures of the 1.5.0 conformance corpus, byte for
+byte in canonical form, all 55 commerce cases, the execution plan of every golden result, the
+six operator-lock scenarios, all 423 operational-artifact cases, all 131 malformed-request
+cases and all 102 plan-revision cases of the release. Packing results are unchanged from 1.4.0
+except where the block solver claimed support it did not have (see *Fixed*).
+
+### Added
+
+- **Weight rebalancing.** `Packvium.Packing.WeightRebalance.Rebalance` evens out the payload
+  across the containers of a finished packing, one item at a time from the heaviest container
+  to a lighter one, and keeps a move only if the item has a real place there and the whole
+  packing still passes the independent validator. It never adds a container, drops an item or
+  moves a fixed placement, and it refuses a packing its own tariff cannot price, as
+  `Packer.Pack` does. `RebalanceResult` lists the moves as `WeightMove`s.
+- **`OperationalArtifact.ReplayLevel(result)`**: `exact` or `not_guaranteed`, the replay
+  promise an artifact of the result would make, without building it.
+- **`RouteSequence.PlacementReachability`**: which placements can be reached right now, and
+  which placements block each one by support, by every exit sweep or by the route.
+- **Six examples:** `Errors`, `FixedPlacements`, `Limits`, `Rebalancing`, `Reproducibility` and
+  `Trucking`, each checked against the output of the matching Python example.
+
+### Changed
+
+- **A misspelt `configuration` or `effort_budget` key is refused.** The schema closes both, so
+  a key it does not declare (`profile` for `solver_profile`, `top_k` for `alternatives`, or
+  `parallel`) throws `InvalidRequestException` with reason `not_allowed` and the key's pointer,
+  `/configuration/profile`, instead of leaving the request on defaults. An unknown `objective`
+  or access direction is `not_allowed` with its pointer too.
+- **A fixed placement or point that names a key it may not have** is refused with
+  `... cannot carry [...]`, the wording of every engine.
+- **The `Serialization` and `Execution` examples** send `solver_profile` and `alternatives`.
+- **Search does less work.** The spatial index keeps the answers an insertion cannot change
+  (at most 128, and 1024 per generation), the single-container beam skips a candidate that
+  cannot beat its incumbent and reads its resource bound from prefix sums, the maximal-space
+  containment scan stops early, and the container-plan beam no longer re-scores a finished
+  plan. Results are unchanged.
+
+### Fixed
+
+- **The block solver no longer claims support it does not have.** A block set on a smaller one
+  overhangs it; the bottom layer of each block now reports the share of its base that rests on
+  something, not 1.0. The block solver is skipped when the request sets
+  `minimum_support_ratio`, and for compressible items, leaving them to the per-item search.
+
 ## [1.4.0]
 
 Matches Packvium 1.4.0: all 400 packing fixtures of the 1.4.0 conformance corpus, byte for

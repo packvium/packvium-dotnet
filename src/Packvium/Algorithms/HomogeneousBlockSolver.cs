@@ -10,10 +10,12 @@ namespace Packvium.Algorithms;
 
 /// <summary>
 /// Packs solid single-type rectangular blocks into maximal free spaces, in both a count-first
-/// and a volume-first mode, and keeps the better. Only for plain boxes where every member is
-/// fully supported and no per-placement rule can tell members apart; otherwise it falls back to
-/// <see cref="ExtremePointSolver"/>. Enumeration is O(B * S * T * R * X * Y), bounded by the
-/// deadline and <c>container_plan_node_limit</c>.
+/// and a volume-first mode, and keeps the better. Only for rigid plain boxes no per-placement rule
+/// can tell apart, and only when no support is required: a block set on a smaller one overhangs
+/// it, so the members of its bottom layer report the support they really have. Otherwise it falls
+/// back to <see cref="ExtremePointSolver"/>. Enumeration is O(B * S * T * R * X * Y), bounded by the
+/// deadline and <c>container_plan_node_limit</c>; filling a block costs O(m) per bottom-layer
+/// member for its support, m the placements so far.
 /// </summary>
 public sealed class HomogeneousBlockSolver(IReadOnlyList<IPlacementConstraint>? constraints = null) : ISingleContainerSolver
 {
@@ -33,7 +35,7 @@ public sealed class HomogeneousBlockSolver(IReadOnlyList<IPlacementConstraint>? 
     public SingleContainerSolution PackOne(Container container, int sequence, IReadOnlyList<ItemInstance> items,
         PackingConfig config, SearchStats stats, Deadline deadline)
     {
-        if (!Supports(container, items))
+        if (!Supports(container, items, config))
         {
             return new ExtremePointSolver(constraints).PackOne(container, sequence, items, config, stats, deadline);
         }
@@ -58,10 +60,10 @@ public sealed class HomogeneousBlockSolver(IReadOnlyList<IPlacementConstraint>? 
             : new SingleContainerSolution(best.State, best.Unpacked, false, reached);
     }
 
-    private bool Supports(Container container, IReadOnlyList<ItemInstance> items)
+    private bool Supports(Container container, IReadOnlyList<ItemInstance> items, PackingConfig config)
     {
         if (constraints.Count > 0 || container.Obstacles.Length > 0 || container.Preloaded.Length > 0
-            || container.Axles is not null
+            || container.Axles is not null || config.MinimumSupportRatio > 0
             || !container.TagLimits.IsEmpty || container.MaxStackDensity is not null || container.VoidFillReserveRatio > 0)
         {
             return false;
@@ -69,7 +71,7 @@ public sealed class HomogeneousBlockSolver(IReadOnlyList<IPlacementConstraint>? 
         return items.All(instance =>
         {
             var item = instance.Item;
-            return item.Group is null && item.Tags.Count == 0 && item.IncompatibleTags.Count == 0
+            return item.ShapeType == ShapeType.RigidCuboid && item.Group is null && item.Tags.Count == 0 && item.IncompatibleTags.Count == 0
                    && item.EligibleContainerTags.Count == 0 && item.Stackable && !item.MustBeOnFloor
                    && item.MaxTopLoad is null && item.MaxStackedItems is null && item.MinimumSupportRatio == 0
                    && item.GroundContactRule is null or "free" && item.NestingHeight is null && item.StopIndex is null;
@@ -206,12 +208,27 @@ public sealed class HomogeneousBlockSolver(IReadOnlyList<IPlacementConstraint>? 
                         block.Space.Origin.Y + y * block.Envelope.Width.Ticks,
                         block.Space.Origin.Z + z * block.Envelope.Height.Ticks);
                     var position = new Point(point.X + clearance, point.Y + clearance, point.Z + clearance);
-                    state.AddDirect(new Placement(chosen[index++], position, block.Rotation, block.Physical, point,
-                        block.Envelope));
+                    var instance = chosen[index++];
+                    // Above its bottom layer a member rests on an identical footprint; the bottom
+                    // layer rests on whatever is there.
+                    var support = z == 0 ? MemberSupport(state, instance, point, block.Envelope) : 1.0;
+                    state.AddDirect(new Placement(instance, position, block.Rotation, block.Physical, point,
+                        block.Envelope, support));
                     stats.CandidatesEvaluated++;
                     stats.PlacementsAttempted++;
                 }
             }
         }
+    }
+
+    /// <summary>The share of a member's base that rests on the floor or on a box beneath it.</summary>
+    private static double MemberSupport(ContainerState state, ItemInstance instance, Point point, Dimensions envelope)
+    {
+        if (point.Z == 0)
+        {
+            return 1.0;
+        }
+        var support = DirectSupportView.For(state.Placements, instance, new AxisAlignedBox(point, envelope));
+        return DecimalRendering.TrueDivide(support.SupportingArea, envelope.BaseArea);
     }
 }

@@ -39,8 +39,8 @@ public static class BeamPack
     private sealed record Node(ContainerState State, ImmutableArray<ItemInstance> Unplaced);
 
     /// <summary>
-    /// The items of later batches, reduced to what the unpacked bound reads: their volumes and
-    /// weights in ascending order, sorted once per layer instead of once per ranked node.
+    /// The items of later batches, reduced to what the unpacked bound reads: the prefix sums of
+    /// their ascending volumes and weights, built once per layer instead of once per ranked node.
     /// <see cref="Volumes"/> is null under nesting and <see cref="Weights"/> without a payload limit.
     /// </summary>
     private sealed record Future(Int128[]? Volumes, Int128[]? Weights, int Count)
@@ -55,9 +55,19 @@ public static class BeamPack
             }
             var volumes = items.Any(item => item.Item.NestingHeight is not null)
                 ? null
-                : items.Select(item => item.Dimensions.Volume).Order().ToArray();
-            var weights = hasMaxPayload ? items.Select(item => (Int128)item.Weight.Ticks).Order().ToArray() : null;
+                : PrefixSums(items.Select(item => item.Dimensions.Volume));
+            var weights = hasMaxPayload ? PrefixSums(items.Select(item => (Int128)item.Weight.Ticks)) : null;
             return new Future(volumes, weights, items.Count);
+        }
+
+        private static Int128[] PrefixSums(IEnumerable<Int128> costs)
+        {
+            var sums = costs.Order().ToArray();
+            for (var index = 1; index < sums.Length; index++)
+            {
+                sums[index] += sums[index - 1];
+            }
+            return sums;
         }
     }
 
@@ -123,8 +133,10 @@ public static class BeamPack
         long nodes = 0;
         List<Node> beam = [new(new ContainerState(container, sequence), [])];
         var incumbent = GreedyRollout(container, sequence, batches, config, constraints, stats, deadline);
-        // Kept beside the incumbent, so each expansion costs one key, not two.
+        // Kept beside the incumbent, so each expansion costs one key, not two. With no future the
+        // key's first component is the unplaced count, kept apart so a loser is skipped unbuilt.
         var incumbentKey = NodeKey(incumbent, Future.None);
+        var incumbentUnplaced = incumbent.Unplaced.Length;
         for (var position = 0; position < batches.Count; position++)
         {
             var batch = batches[position];
@@ -149,13 +161,20 @@ public static class BeamPack
             var precomputed = Future.Of(future, container.MaxPayload is not null);
             foreach (var expansion in expansions)
             {
-                // With no future the bound is the unplaced count, so the key needs no node built
-                // unless it wins.
-                var candidateKey = NodeKey(expansion.State, expansion.Unplaced.Length + future.Length, Future.None);
+                // More unplaced items loses on the key's first component whatever follows, so the
+                // signature -- the costly part -- is built only for a candidate that can win, and
+                // the node only for one that does.
+                var unplaced = expansion.Unplaced.Length + future.Length;
+                if (unplaced > incumbentUnplaced)
+                {
+                    continue;
+                }
+                var candidateKey = NodeKey(expansion.State, unplaced, Future.None);
                 if (candidateKey < incumbentKey)
                 {
                     incumbent = new Node(expansion.State, [.. expansion.Unplaced, .. future]);
                     incumbentKey = candidateKey;
+                    incumbentUnplaced = unplaced;
                 }
             }
             if (expansions.Count == 0)
@@ -234,8 +253,8 @@ public static class BeamPack
 
     /// <summary>
     /// An admissible lower bound on final unpacked cardinality from volume and weight alone; the
-    /// volume half is disabled for nesting, whose nominal volumes are not additive. O(f) for f
-    /// future items, their costs already sorted.
+    /// volume half is disabled for nesting, whose nominal volumes are not additive. O(log f) for f
+    /// future items, from their prefix sums.
     /// </summary>
     private static long UnpackedLowerBound(ContainerState state, int unplacedCount, Future future)
     {
@@ -257,20 +276,26 @@ public static class BeamPack
         return unplacedCount + future.Count - possible;
     }
 
-    /// <summary>Cheapest units first, over ascending costs: an optimistic count for one additive resource.</summary>
-    private static long CountWithCapacity(Int128[] sortedCosts, Int128 capacity)
+    /// <summary>
+    /// Cheapest units first: an optimistic count for one additive resource, which can only
+    /// overestimate what fits. Costs are non-negative, so the prefix sums never decrease and the
+    /// count is the number of sums within capacity, one binary search.
+    /// </summary>
+    internal static long CountWithCapacity(Int128[] cumulativeCosts, Int128 capacity)
     {
-        Int128 used = 0;
-        long count = 0;
-        foreach (var cost in sortedCosts)
+        var (low, high) = (0, cumulativeCosts.Length);
+        while (low < high)
         {
-            if (used + cost > capacity)
+            var middle = low + ((high - low) / 2);
+            if (cumulativeCosts[middle] <= capacity)
             {
-                break;
+                low = middle + 1;
             }
-            used += cost;
-            count++;
+            else
+            {
+                high = middle;
+            }
         }
-        return count;
+        return low;
     }
 }

@@ -43,6 +43,16 @@ public sealed class SequenceReplayException(int index, int step, string reason)
 }
 
 /// <summary>
+/// Whether placement <see cref="Index"/> could be reached and removed right now, with the full
+/// scene as it stands. It is reachable only when nothing still rests on it
+/// (<see cref="BlockedBySupport"/>), some allowed exit sweep is clear (<see cref="BlockedByNeighbors"/>
+/// names every blocker only when all of them are blocked), and nothing due at an earlier stop
+/// remains (<see cref="BlockedByRoute"/>).
+/// </summary>
+public sealed record Reachability(int Index, bool Reachable, ImmutableSortedSet<int> BlockedBySupport,
+    ImmutableSortedSet<int> BlockedByNeighbors, ImmutableSortedSet<int> BlockedByRoute);
+
+/// <summary>
 /// Loading and unloading replay over a finished scene (<c>packing_sequence.py</c>), using the same
 /// sweep geometry the constraints use. Unloading starts from the full scene, and a box depends on
 /// whatever rests on it; loading starts from an empty container, and a box depends on whatever it
@@ -186,6 +196,43 @@ public static class RouteSequence
         return order;
     }
 
+    /// <summary>
+    /// Per-placement reachability of the scene as it stands, one entry per box in input order: a
+    /// snapshot ("what could come out if the door opened now"), not a search for a complete
+    /// order, so it never throws <see cref="SequenceException"/>. With stops, a placement due later
+    /// than the earliest stop still present is blocked by every placement due before it. O(n^2 * d)
+    /// for n boxes and d directions.
+    /// </summary>
+    public static List<Reachability> PlacementReachability(IReadOnlyList<AxisAlignedBox> boxes, Dimensions container,
+        IReadOnlyList<long?>? stops = null, IReadOnlyList<string>? directions = null)
+    {
+        directions = Validated(directions);
+        if (stops is not null && stops.Count != boxes.Count)
+        {
+            throw new ArgumentException("stops must contain exactly one entry per placement");
+        }
+        var dependsOn = Children(boxes);
+        var present = Enumerable.Range(0, boxes.Count).ToHashSet();
+        var due = stops?.Where(stop => stop is not null).Select(stop => stop!.Value).ToList() ?? [];
+        long? earliest = due.Count > 0 ? due.Min() : null;
+        var results = new List<Reachability>(boxes.Count);
+        for (var index = 0; index < boxes.Count; index++)
+        {
+            var support = dependsOn[index].ToImmutableSortedSet();
+            var route = ImmutableSortedSet<int>.Empty;
+            if (stops?[index] is { } stop && earliest is not null && stop != earliest)
+            {
+                route = [.. Enumerable.Range(0, boxes.Count).Where(other => other != index && stops[other] < stop)];
+            }
+            var clear = ClearDirection(index, boxes, present, container, directions);
+            var neighbors = clear
+                ? ImmutableSortedSet<int>.Empty
+                : [.. directions.SelectMany(direction => Blocking(index, boxes, present, container, direction))];
+            results.Add(new Reachability(index, support.IsEmpty && route.IsEmpty && clear, support, neighbors, route));
+        }
+        return results;
+    }
+
     private static IReadOnlyList<string> Validated(IReadOnlyList<string>? directions)
     {
         directions ??= Directions.All;
@@ -225,6 +272,14 @@ public static class RouteSequence
         {
             throw new SequenceReplayException(index, step, "placement collides with an already present placement");
         }
+    }
+
+    /// <summary>Every other present box the sweep toward <paramref name="direction"/> runs into.</summary>
+    private static IEnumerable<int> Blocking(int index, IReadOnlyList<AxisAlignedBox> boxes, HashSet<int> present,
+        Dimensions container, string direction)
+    {
+        var sweep = Directions.SweptVolume(boxes[index], container, direction);
+        return present.Where(other => other != index && sweep.Intersects(boxes[other]));
     }
 
     private static bool ClearDirection(int index, IReadOnlyList<AxisAlignedBox> boxes, HashSet<int> present,

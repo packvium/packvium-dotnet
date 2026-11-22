@@ -1,6 +1,5 @@
 using System;
 using System.Linq;
-using Packvium.Objectives;
 using Packvium.Serialization;
 
 namespace Packvium.Examples;
@@ -19,9 +18,10 @@ namespace Packvium.Examples;
 public static class Serialization
 {
     // The whole vocabulary in miniature: units, solver configuration, items with rules and
-    // a container with a carrier rate card. The time limit is a safety fuse, not a target:
-    // how many runners-up top_k finds is otherwise bounded by the wall clock, and an example
-    // must not change its answer because the machine is busy.
+    // a container with a carrier rate card. `alternatives: 2` asks for the winner and at most
+    // one runner-up. The time limit is a safety fuse far above what this solve needs: how many
+    // runners-up a clock-bounded search finds depends on how busy the host is, and
+    // Reproducibility.cs shows what happens when the clock decides.
     private const string Request = """
         {
           "units": {"length": "mm"},
@@ -30,9 +30,9 @@ public static class Serialization
             "dimensional_weight_divisor": 5000,
             "dimensional_weight_length_unit": "cm",
             "dimensional_weight_weight_unit": "kg",
-            "profile": "balanced",
+            "solver_profile": "balanced",
             "seed": 42,
-            "top_k": 2,
+            "alternatives": 2,
             "time_limit_ms": 60000
           },
           "items": [
@@ -70,8 +70,10 @@ public static class Serialization
         Console.WriteLine("one placement, in full:");
         Console.WriteLine($"{PythonJson.Dumps(first, sortKeys: false, indent: 2)[..400]} ...");
 
-        // Runners-up are real alternative arrangements, already scored and validated. Two can
-        // share a score and still differ in geometry, so compare placements, not scores.
+        // Runners-up are real alternative arrangements, already scored and validated. The count
+        // includes the winner, and an empty list is normal: a search that found nothing else
+        // worth ranking says so. Two can share a score and still differ in geometry, so
+        // compare placements, not scores.
         var alternatives = ((JsonArray)result.Require("alternatives")).Items.Cast<JsonObject>().ToList();
         Console.WriteLine();
         Console.WriteLine($"alternatives: {alternatives.Count}");
@@ -84,9 +86,8 @@ public static class Serialization
             Console.WriteLine($"   score {Python.IntegerList(Integers(alternative.Require("score")))} first two placements [{string.Join(", ", positions)}]");
         }
 
-        // A key the reader does not recognise is ignored -- misspell keep_upright and the mug is
-        // silently unrotated. The strictness lives in the request JSON Schema, which ships with
-        // the project; validate against it if you want typo protection.
+        // A key the reader does not recognise on an item is ignored -- misspell keep_upright and
+        // the mug is silently rotatable. A misspelt configuration key, by contrast, is refused.
         Console.WriteLine();
         var typo = Request.Replace("\"keep_upright\": true", "\"keep_upright\": true, \"keep_uprght\": true", StringComparison.Ordinal);
         Console.WriteLine($"misspelled field: {Text(JsonApi.PackFromJson(JsonReader.Parse(typo)), "status")} -- accepted; the misspelling is invisible to the parser,");
@@ -99,13 +100,27 @@ public static class Serialization
         {
             JsonApi.PackFromJson(JsonReader.Parse(badObjective));
         }
-        catch (UnknownObjectiveException refusal)
+        catch (ArgumentException refusal)
         {
             Console.WriteLine($"unknown objective: {refusal.Message[..100]}");
         }
         var refused = UnsupportedFields.ByScope.Where(entry => !entry.Fields.IsEmpty)
             .Select(entry => $"{Python.Quote(entry.Scope)}: {Python.StringTuple(entry.Fields)}").ToList();
         Console.WriteLine($"fields this engine refuses by name: {(refused.Count == 0 ? "none" : $"{{{string.Join(", ", refused)}}}")}");
+
+        // A field the schema reserves but this engine has not implemented yet is refused by
+        // name, so a request written for a newer engine fails loudly instead of being
+        // half-honoured.
+        var ahead = Request.Replace("\"cost_minor\": 180,", "\"cost_minor\": 180, \"pallet_overhang_limit\": {\"length\": \"50\", \"width\": \"50\"},",
+            StringComparison.Ordinal);
+        try
+        {
+            JsonApi.PackFromJson(JsonReader.Parse(ahead));
+        }
+        catch (UnsupportedFeatureException refusal)
+        {
+            Console.WriteLine($"  sending one anyway: {refusal.Message[..100]}");
+        }
 
         // The same document drives the command line, which reads a request on stdin and
         // writes a result on stdout.

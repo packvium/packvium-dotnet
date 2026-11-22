@@ -15,16 +15,20 @@ public static class PythonJson
 {
     /// <summary>
     /// <paramref name="indent"/> null gives the compact <c>(",", ":")</c> separators the canonical
-    /// form uses; a number gives <c>indent=n</c> with Python's default <c>(",", ": ")</c>.
+    /// form uses, or with <paramref name="spaced"/> the <c>(", ", ": ")</c> a bare
+    /// <c>json.dumps(value)</c> writes; a number gives <c>indent=n</c> with Python's default
+    /// <c>(",", ": ")</c>.
     /// </summary>
-    public static string Dumps(JsonValue value, bool sortKeys, int? indent = null)
+    public static string Dumps(JsonValue value, bool sortKeys, int? indent = null, bool spaced = false)
     {
         var builder = new StringBuilder();
-        Write(builder, value, sortKeys, indent, 0);
+        var separators = indent is not null ? (",", ": ") : spaced ? (", ", ": ") : (",", ":");
+        Write(builder, value, sortKeys, indent, separators, 0);
         return builder.ToString();
     }
 
-    private static void Write(StringBuilder builder, JsonValue value, bool sortKeys, int? indent, int depth)
+    private static void Write(StringBuilder builder, JsonValue value, bool sortKeys, int? indent,
+        (string Item, string Key) separators, int depth)
     {
         switch (value)
         {
@@ -44,16 +48,16 @@ public static class PythonJson
                 WriteString(builder, text.Value);
                 break;
             case JsonArray array:
-                WriteSequence(builder, '[', ']', array.Items, indent, depth,
-                    item => Write(builder, item, sortKeys, indent, depth + 1));
+                WriteSequence(builder, '[', ']', array.Items, indent, separators.Item, depth,
+                    item => Write(builder, item, sortKeys, indent, separators, depth + 1));
                 break;
             case JsonObject obj:
                 var members = sortKeys ? obj.Members.OrderBy(m => m.Key, CodePointComparer.Instance) : obj.Members;
-                WriteSequence(builder, '{', '}', members.ToList(), indent, depth, member =>
+                WriteSequence(builder, '{', '}', members.ToList(), indent, separators.Item, depth, member =>
                 {
                     WriteString(builder, member.Key);
-                    builder.Append(indent is null ? ":" : ": ");
-                    Write(builder, member.Value, sortKeys, indent, depth + 1);
+                    builder.Append(separators.Key);
+                    Write(builder, member.Value, sortKeys, indent, separators, depth + 1);
                 });
                 break;
             default:
@@ -62,7 +66,7 @@ public static class PythonJson
     }
 
     private static void WriteSequence<T>(StringBuilder builder, char open, char close, IReadOnlyList<T> items,
-        int? indent, int depth, Action<T> writeItem)
+        int? indent, string itemSeparator, int depth, Action<T> writeItem)
     {
         builder.Append(open);
         if (items.Count == 0)
@@ -74,7 +78,7 @@ public static class PythonJson
         {
             if (index > 0)
             {
-                builder.Append(',');
+                builder.Append(itemSeparator);
             }
             if (indent is { } width)
             {

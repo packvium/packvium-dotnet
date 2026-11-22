@@ -19,6 +19,21 @@ public static class RequestRules
 {
     private static readonly string[] SolverProfileNames = ["fast", "balanced", "quality", "exact_small"];
 
+    private static readonly string[] ObjectiveNames =
+        ["default", "lowest_cost", "shipping_cost", "lowest_landed_cost", "open_dimension_height", "maximum_value"];
+
+    private static readonly string[] AccessDirectionNames = ["+x", "-x", "+y", "-y", "+z", "-z"];
+
+    /// <summary>Every key the request schema's <c>configuration</c> declares; it sets <c>additionalProperties: false</c>.</summary>
+    private static readonly HashSet<string> ConfigurationFields = new(
+    [
+        "alternatives", "clearance", "container_plan_beam_width", "container_plan_node_limit",
+        "dimensional_weight_divisor", "dimensional_weight_length_unit", "dimensional_weight_weight_unit",
+        "effort_budget", "exact_item_limit", "max_candidate_points", "max_candidates_per_item", "max_containers",
+        "minimum_support_ratio", "multi_start_orders", "objective", "require_placement_coordinates", "seed",
+        "solver_profile", "solvers", "time_limit_ms",
+    ], StringComparer.Ordinal);
+
     private static readonly (string Name, int Minimum)[] ConfigurationIntegers =
     [
         ("time_limit_ms", 1), ("alternatives", 1), ("max_containers", 1), ("exact_item_limit", 1),
@@ -28,6 +43,8 @@ public static class RequestRules
 
     private static readonly string[] EffortLimits =
         ["max_candidates_evaluated", "max_placement_attempts", "max_search_nodes", "max_restarts"];
+
+    private static readonly HashSet<string> EffortFields = new(EffortLimits, StringComparer.Ordinal);
 
     private static readonly string[] Sides = ["length", "width", "height"];
 
@@ -82,7 +99,9 @@ public static class RequestRules
             return;
         }
         var configuration = RequireObject(raw, "/configuration");
+        KnownFields(configuration, "/configuration", ConfigurationFields);
         Optional(configuration, "solver_profile", "/configuration", (value, field) => OneOf(value, field, SolverProfileNames));
+        Optional(configuration, "objective", "/configuration", (value, field) => OneOf(value, field, ObjectiveNames));
         foreach (var (name, minimum) in ConfigurationIntegers)
         {
             OptionalInteger(configuration, name, "/configuration", minimum);
@@ -92,6 +111,7 @@ public static class RequestRules
         if (configuration.GetPresent("effort_budget") is { } effort)
         {
             var budget = RequireObject(effort, "/configuration/effort_budget");
+            KnownFields(budget, "/configuration/effort_budget", EffortFields);
             foreach (var name in EffortLimits)
             {
                 OptionalInteger(budget, name, "/configuration/effort_budget", 1);
@@ -130,6 +150,7 @@ public static class RequestRules
         OptionalInteger(container, "max_items", where, 1);
         OptionalInteger(container, "cost_minor", where, 0);
         OptionalRatio(container, "void_fill_reserve_ratio", where, 1);
+        Optional(container, "access_directions", where, AccessDirections);
         Optional(container, "tag_limits", where, TagLimits);
         Optional(container, "rate_table", where, RateTable);
         Optional(container, "obstacles", where, (value, field) => Obstacles(value, field, unit));
@@ -148,6 +169,28 @@ public static class RequestRules
     /// Code-point order, as every engine walks them: a JavaScript object puts integer-like keys
     /// first, so insertion order would name a different bad tag there.
     /// </summary>
+    private static void AccessDirections(JsonValue raw, string where)
+    {
+        var directions = RequireList(raw, where);
+        for (var index = 0; index < directions.Items.Length; index++)
+        {
+            OneOf(directions.Items[index], where + JsonPointer.Of(index), AccessDirectionNames);
+        }
+    }
+
+    /// <summary>
+    /// The schema closes this object: a key it does not name is refused, never ignored. The first
+    /// unknown key in code-point order is named, the order every engine can share. O(k log k).
+    /// </summary>
+    private static void KnownFields(JsonObject value, string where, HashSet<string> known)
+    {
+        var unknown = value.Keys.Where(key => !known.Contains(key)).Order(CodePointComparer.Instance).FirstOrDefault();
+        if (unknown is not null)
+        {
+            throw new InvalidRequestException("not_allowed", where + JsonPointer.Of(unknown), "is not a known field");
+        }
+    }
+
     private static void TagLimits(JsonValue raw, string where)
     {
         var limits = RequireObject(raw, where);

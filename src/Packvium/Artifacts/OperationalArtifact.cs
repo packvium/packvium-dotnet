@@ -31,7 +31,7 @@ public static class OperationalArtifact
     /// engine's own name is deliberately not recorded: correct builders naming themselves would
     /// emit different documents.
     /// </summary>
-    public const string SuiteVersion = "1.4.0";
+    public const string SuiteVersion = "1.5.0";
 
     /// <summary>The deterministic part of <c>result.algorithm</c>; <c>duration_ms</c> is wall-clock time and never enters.</summary>
     public static ImmutableArray<string> SolverFields { get; } =
@@ -126,6 +126,17 @@ public static class OperationalArtifact
         {
             throw new OperationalArtifactException(error.Code, error.Message, error);
         }
+    }
+
+    /// <summary>
+    /// <c>exact</c> or <c>not_guaranteed</c>: the replay promise an artifact of this result would
+    /// make, without building the artifact. A malformed <c>algorithm</c> is refused as
+    /// <see cref="Build"/> refuses it.
+    /// </summary>
+    public static string ReplayLevel(JsonObject result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        return ((JsonString)Replay(Solver(result.Get("algorithm"))).Require("level")).Value;
     }
 
     // ---------------------------------------------------------------------------- provenance

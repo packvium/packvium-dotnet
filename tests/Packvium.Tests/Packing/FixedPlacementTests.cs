@@ -270,8 +270,9 @@ public sealed class FixedPlacementTests
         Assert.Contains(fragment, message, StringComparison.Ordinal);
     }
 
-    private static (Item[] Items, Container[] Containers) DomainRequest(int quantity = 5, int boxes = 3) =>
-        ([new Item("cube", Dimensions.Mm("100", "100", "100"), Weight.Of("1000"), quantity)],
+    private static (Item[] Items, Container[] Containers) DomainRequest(int quantity = 5, int boxes = 3,
+        string weight = "1000") =>
+        ([new Item("cube", Dimensions.Mm("100", "100", "100"), Weight.Of(weight), quantity)],
          [new Container("box", Dimensions.Mm("200", "100", "200"), quantity: boxes)]);
 
     private static FixedPlacement At(long xMm, long yMm, long zMm, int instance = 1) =>
@@ -299,11 +300,26 @@ public sealed class FixedPlacementTests
         Assert.Contains("fixed_container_missing", report.Issues.Select(issue => issue.Code));
     }
 
+    [Fact]
+    public void RebalancingNeverMovesAFixedItem()
+    {
+        var (items, containers) = DomainRequest(quantity: 5, boxes: 2, weight: "5000");
+        FixedPlacement[] fixedItems = [At(0, 0, 0), At(100, 0, 0), At(0, 0, 100), At(0, 0, 0, instance: 2)];
+        var config = new PackingConfig();
+        var packed = new Packer(config).Pack(items, containers, fixedItems);
+        var model = new PackingRequest(items, containers, fixedItems);
+        var rebalanced = WeightRebalance.Rebalance(model, packed.Containers, packed.Unpacked, config);
+        Assert.Equal(2, packed.Containers.Length);
+        Assert.DoesNotContain(rebalanced.Moves, move => move.ItemId is "cube#1" or "cube#2" or "cube#3" or "cube#4");
+        var report = IndependentSolutionValidator.Validate(model, rebalanced.Containers, 0.0, null, packed.Unpacked);
+        Assert.True(report.Valid, string.Join(", ", report.Issues.Select(issue => issue.Code)));
+    }
+
     public static TheoryData<string, string> Malformed() => new()
     {
         { "\"x\"", "fixed_placements is a list" },
         { "[5]", "fixed_placements[0] is an object" },
-        { """[{"item_type": "cube", "container_type": "box", "orientation": "LWH", "note": "strapped"}]""", "fixed_placements[0] does not carry [\"note\"]" },
+        { """[{"item_type": "cube", "container_type": "box", "orientation": "LWH", "note": "strapped"}]""", "fixed_placements[0] cannot carry [\"note\"]" },
         { """[{"item_type": "cube", "container_type": "box"}]""", "fixed_placements[0] needs [\"orientation\"]" },
         { """[{"item_type": "", "container_type": "box", "orientation": "LWH"}]""", "fixed_placements[0].item_type is a non-empty string" },
         { """[{"item_type": "cube", "container_type": 5, "orientation": "LWH"}]""", "fixed_placements[0].container_type is a non-empty string" },
@@ -314,7 +330,7 @@ public sealed class FixedPlacementTests
         { """[{"item_type": "cube", "container_type": "box", "orientation": "LWH", "container_instance": 9007199254740992}]""", "fixed_placements[0].container_instance counts from 1" },
         { """[{"item_type": "cube", "container_type": "box", "orientation": "LWH", "position": ["100", "0", "0"]}]""", "fixed_placements[0].position is a point object" },
         { """[{"item_type": "cube", "container_type": "box", "orientation": "LWH", "position": null}]""", "fixed_placements[0].position is a point object" },
-        { """[{"item_type": "cube", "container_type": "box", "orientation": "LWH", "position": {"w": "5"}}]""", "fixed_placements[0].position does not carry [\"w\"]" },
+        { """[{"item_type": "cube", "container_type": "box", "orientation": "LWH", "position": {"w": "5"}}]""", "fixed_placements[0].position cannot carry [\"w\"]" },
         { """[{"item_type": "cube", "container_type": "box", "orientation": "LWH", "position": {"y": true}}]""", "fixed_placements[0].position.y is a measure" },
     };
 

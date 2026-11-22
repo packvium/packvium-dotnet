@@ -38,7 +38,7 @@ public static class Execution
           "units": {"length": "mm"},
           "configuration": {
             "objective": "default",
-            "profile": "balanced",
+            "solver_profile": "balanced",
             "seed": 42,
             "time_limit_ms": 60000
           },

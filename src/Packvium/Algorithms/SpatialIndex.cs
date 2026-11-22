@@ -16,12 +16,21 @@ public readonly record struct Bound(long X1, long Y1, long Z1, long X2, long Y2,
 /// </summary>
 public sealed class SpatialIndex
 {
+    /// <summary>Answers one generation of the index keeps; reaching it starts a new dictionary.</summary>
+    private const int QueryCacheLimit = 1024;
+
+    /// <summary>
+    /// Answers an insertion carries over. Every live search state keeps the dictionary it was born
+    /// with, so what an insertion carries multiplies by the beam: the reference bounds it at 128.
+    /// </summary>
+    private const int RetainedAnswersLimit = 128;
+
     private readonly Dictionary<(long, long, long), ImmutableArray<int>> cells;
 
     // Query answers by cell range, valid for the current contents only. A candidate scan asks
     // about far more boxes than there are distinct cell ranges -- the grid is coarse by design
-    // -- and an answer is a pure function of the contents, so it is computed once per range
-    // per generation of the index.
+    // -- and an answer is a pure function of the contents. An insertion keeps the answers of
+    // ranges disjoint from the cells it changed; any other range is recomputed when asked.
     private Dictionary<(long, long, long, long, long, long), ImmutableArray<int>> answers;
 
     public SpatialIndex(long lengthTicks, long widthTicks, long heightTicks, long cellsPerAxis = 8)
@@ -49,6 +58,9 @@ public sealed class SpatialIndex
 
     public long CellZ { get; }
 
+    /// <summary>How many answers this generation holds, for the tests that hold the cache to its bounds.</summary>
+    internal int CachedAnswers => answers.Count;
+
     /// <summary>An independent fork: search branches diverge after copying their state.</summary>
     public SpatialIndex Copy() => new(this);
 
@@ -69,7 +81,31 @@ public sealed class SpatialIndex
                 }
             }
         }
-        answers = [];
+        answers = Retained(ix1, ix2, iy1, iy2, iz1, iz2);
+    }
+
+    /// <summary>
+    /// A new dictionary, since forks share answers: the oldest answers whose range is disjoint
+    /// from the changed cells, at most <see cref="RetainedAnswersLimit"/>. O(a) for a cached
+    /// answers. Entries are only ever added, so enumeration is insertion order.
+    /// </summary>
+    private Dictionary<(long, long, long, long, long, long), ImmutableArray<int>> Retained(long ix1, long ix2,
+        long iy1, long iy2, long iz1, long iz2)
+    {
+        var retained = new Dictionary<(long, long, long, long, long, long), ImmutableArray<int>>();
+        foreach (var (key, answer) in answers)
+        {
+            if (key.Item2 <= ix1 || ix2 <= key.Item1 || key.Item4 <= iy1 || iy2 <= key.Item3
+                || key.Item6 <= iz1 || iz2 <= key.Item5)
+            {
+                retained[key] = answer;
+                if (retained.Count >= RetainedAnswersLimit)
+                {
+                    break;
+                }
+            }
+        }
+        return retained;
     }
 
     /// <summary>
@@ -89,6 +125,11 @@ public sealed class SpatialIndex
         if (answers.TryGetValue(range, out var answer))
         {
             return answer;
+        }
+        if (answers.Count >= QueryCacheLimit)
+        {
+            // Detach rather than clear: another search branch may share this dictionary.
+            answers = [];
         }
         answer = Collect(range);
         answers[range] = answer;
