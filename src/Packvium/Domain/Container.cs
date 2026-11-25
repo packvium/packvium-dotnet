@@ -30,9 +30,12 @@ public sealed class Container
         IReadOnlyDictionary<string, object?>? metadata = null,
         Weight? maxStackDensity = null,
         (Axle Front, Axle Rear)? axles = null,
-        IEnumerable<string>? accessDirections = null)
+        IEnumerable<string>? accessDirections = null,
+        string? deformableBoundary = null,
+        MadeToMeasure? madeToMeasure = null)
         : this(id, innerDimensions, outerDimensions, tareWeight, maxPayload, costMinor, rateTable, quantity, obstacles,
-            tags, maxItems, voidFillReserveRatio, tagLimits, metadata, maxStackDensity, axles, accessDirections, [])
+            tags, maxItems, voidFillReserveRatio, tagLimits, metadata, maxStackDensity, axles, accessDirections, [],
+            deformableBoundary, madeToMeasure)
     {
     }
 
@@ -54,7 +57,9 @@ public sealed class Container
         Weight? maxStackDensity,
         (Axle Front, Axle Rear)? axles,
         IEnumerable<string>? accessDirections,
-        ImmutableArray<Placement> preloaded)
+        ImmutableArray<Placement> preloaded,
+        string? deformableBoundary,
+        MadeToMeasure? madeToMeasure)
     {
         Id = id;
         InnerDimensions = innerDimensions;
@@ -71,6 +76,8 @@ public sealed class Container
         Metadata = metadata ?? NoMetadata;
         MaxStackDensity = maxStackDensity;
         Axles = axles;
+        DeformableBoundary = deformableBoundary;
+        MadeToMeasure = madeToMeasure;
         var doors = (accessDirections ?? []).ToList();
         Validate(doors);
         // Canonical order rather than as given: two callers naming the same doors in a
@@ -132,10 +139,52 @@ public sealed class Container
     /// </summary>
     public ImmutableArray<Placement> Preloaded { get; }
 
+    /// <summary>
+    /// <c>"flat_bag"</c> makes this a flexible bag whose package conforms to its contents;
+    /// null is a rigid container.
+    /// </summary>
+    public string? DeformableBoundary { get; }
+
+    /// <summary>
+    /// Cut to measure by an on-demand box machine whose largest box is <see cref="InnerDimensions"/>.
+    /// A packed result carries the fabricated box instead.
+    /// </summary>
+    public MadeToMeasure? MadeToMeasure { get; }
+
+    public bool IsFlatBag => DeformableBoundary is not null;
+
     /// <summary>This container holding <paramref name="placements"/> before search, or the plain container for none.</summary>
     public Container WithPreloaded(ImmutableArray<Placement> placements) =>
-        new(Id, InnerDimensions, OuterDimensions, TareWeight, MaxPayload, CostMinor, RateTable, Quantity, Obstacles, Tags,
-            MaxItems, VoidFillReserveRatio, TagLimits, Metadata, MaxStackDensity, Axles, AccessDirections, placements);
+        Copy(InnerDimensions, OuterDimensions, CostMinor, TareWeight, placements);
+
+    /// <summary>The declared container solved inside <paramref name="rung"/>: same id, everything else unchanged.</summary>
+    public Container WithEnvelope(Triple rung) => Copy(rung.AsDimensions(), OuterDimensions, CostMinor, TareWeight, Preloaded);
+
+    /// <summary>
+    /// The box cut for an achieved extent: this container except its size, outer size, price and
+    /// tare. O(1). Containment is a theorem, not a check: every placement lies inside
+    /// <paramref name="achieved"/>, and the grid never rounds below it or past the maximum.
+    /// </summary>
+    public Container Fabricate(Triple achieved)
+    {
+        var spec = MadeToMeasure ?? throw new InvalidOperationException("only a made-to-measure container is fabricated");
+        var maximum = Triple.Of(InnerDimensions);
+        var sides = new Triple(spec.Grid(0, achieved.Length), spec.Grid(1, achieved.Width), spec.Grid(2, achieved.Height));
+        if (sides.Length > maximum.Length || sides.Width > maximum.Width || sides.Height > maximum.Height)
+        {
+            throw new InvalidOperationException("fabricated box exceeds the machine");
+        }
+        var outer = new Triple(checked(sides.Length + spec.OuterAllowance.Length),
+            checked(sides.Width + spec.OuterAllowance.Width), checked(sides.Height + spec.OuterAllowance.Height));
+        return Copy(sides.AsDimensions(), outer.AsDimensions(), (long)spec.BoxCostMinor(CostMinor, sides),
+            new Weight((long)spec.BoxTareTicks(TareWeight.Ticks, sides)), Preloaded);
+    }
+
+    private Container Copy(Dimensions inner, Dimensions? outer, long costMinor, Weight tareWeight,
+        ImmutableArray<Placement> preloaded) =>
+        new(Id, inner, outer, tareWeight, MaxPayload, costMinor, RateTable, Quantity, Obstacles, Tags,
+            MaxItems, VoidFillReserveRatio, TagLimits, Metadata, MaxStackDensity, Axles, AccessDirections, preloaded,
+            DeformableBoundary, MadeToMeasure);
 
     private void Validate(List<string> doors)
     {
@@ -143,6 +192,12 @@ public sealed class Container
         {
             throw new ArgumentException("container id is required");
         }
+        if (DeformableBoundary is not null)
+        {
+            RequireBagFields(doors);
+        }
+        MadeToMeasure?.Admits(Triple.Of(InnerDimensions));
+        MadeToMeasure?.RequireSixtyFourBitBox(Triple.Of(InnerDimensions), CostMinor, TareWeight.Ticks);
         if (Quantity is <= 0)
         {
             throw new ArgumentException("container quantity must be positive");
@@ -176,6 +231,28 @@ public sealed class Container
         if (Obstacles.FirstOrDefault(obstacle => !obstacle.Boxes.All(boundary.Contains)) is { } outside)
         {
             throw new ArgumentException($"obstacle {outside.Id} lies outside container");
+        }
+    }
+
+    /// <summary>
+    /// A bag has no walls, floor plan or chassis for a wall-anchored field to refer to, so those
+    /// fields are refused rather than read against a frame that moves with its contents.
+    /// </summary>
+    private void RequireBagFields(List<string> doors)
+    {
+        if (!FlatBag.Kinds.Contains(DeformableBoundary))
+        {
+            throw new ArgumentException($"unknown deformable_boundary kind {Units.PythonText.Repr(DeformableBoundary!)}");
+        }
+        (string Name, bool Present)[] refused =
+        [
+            ("obstacles", Obstacles.Length > 0), ("axles", Axles is not null), ("access_directions", doors.Count > 0),
+            ("max_stack_density", MaxStackDensity is not null), ("outer_dimensions", OuterDimensions is not null),
+            ("void_fill_reserve_ratio", VoidFillReserveRatio > 0),
+        ];
+        if (refused.FirstOrDefault(field => field.Present) is { Name: { } name })
+        {
+            throw new ArgumentException($"{name} cannot be combined with deformable_boundary");
         }
     }
 

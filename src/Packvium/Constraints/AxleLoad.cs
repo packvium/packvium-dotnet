@@ -74,6 +74,45 @@ public static class AxleLoad
         return origins;
     }
 
+    /// <summary>
+    /// Whether one item, alone in an empty container, has an x-origin that overloads neither axle.
+    /// Each limit is linear in the item's doubled centre, so the feasible origins form
+    /// one interval, whose two ends <see cref="BalancedOrigins"/>'s arithmetic gives exactly; kept
+    /// in 128 bits here, where an origin far outside the container is an answer, not an overflow.
+    /// O(1), integers only. A statement about an empty container, not a proof: a counterweight
+    /// behind the rear axle can relieve the front one, which is why the reason it backs is inferred.
+    /// </summary>
+    public static bool AdmitsAlone((Axle Front, Axle Rear) axles, long tareWeightTicks, long innerLengthTicks,
+        long itemWeightTicks, long envelopeLengthTicks)
+    {
+        Int128 lastOrigin = innerLengthTicks - envelopeLengthTicks;
+        if (lastOrigin < 0)
+        {
+            return false;
+        }
+        if (itemWeightTicks <= 0)
+        {
+            return Exceeded(axles, [], tareWeightTicks, innerLengthTicks) is null;
+        }
+        var (front, rear) = axles;
+        Int128 denominator = 2 * ((Int128)rear.Position.Ticks - front.Position.Ticks);
+        var (otherTotal, otherDoubledX) = Moments([], tareWeightTicks, innerLengthTicks);
+        var total = otherTotal + itemWeightTicks;
+        Int128 lowest = 0;
+        if (front.MaxLoad is { } frontLimit)
+        {
+            var required = checked(2 * total * rear.Position.Ticks - frontLimit.Ticks * denominator - otherDoubledX);
+            lowest = IntMath.CeilDiv(IntMath.CeilDiv(required, itemWeightTicks) - envelopeLengthTicks, 2);
+        }
+        var highest = lastOrigin;
+        if (rear.MaxLoad is { } rearLimit)
+        {
+            var allowed = checked(rearLimit.Ticks * denominator + 2 * total * front.Position.Ticks - otherDoubledX);
+            highest = IntMath.FloorDiv(IntMath.FloorDiv(allowed, itemWeightTicks) - envelopeLengthTicks, 2);
+        }
+        return Int128.Max(0, lowest) <= Int128.Min(lastOrigin, highest);
+    }
+
     private static (Int128 Total, Int128 DoubledWeightedX) Moments(IReadOnlyList<LoadUnit> units, long tareWeightTicks,
         long tareDoubledCenterX)
     {

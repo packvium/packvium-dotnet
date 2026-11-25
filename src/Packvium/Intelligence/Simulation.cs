@@ -218,7 +218,7 @@ public sealed record ScenarioResult
 }
 
 /// <summary>
-/// Scenario simulation and what-if comparison (<c>packvium.simulation</c>). A scenario runs a
+/// Scenario simulation and what-if comparison. A scenario runs a
 /// fixed order corpus against one version pin through an injected evaluator and mutates nothing;
 /// two scenarios compare order by order as a Pareto report, never as one blended number.
 /// </summary>

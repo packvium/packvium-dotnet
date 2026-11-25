@@ -14,8 +14,10 @@ namespace Packvium.Examples;
 ///
 ///     dotnet run --project examples -- objectives
 ///
-/// Every objective is an exact integer vector compared lexicographically, and every one of
-/// them puts "how many items were left behind" first: no objective trades completeness away.
+/// Every objective is an exact integer vector compared lexicographically, lower first. Six of
+/// the seven put "how many items were left behind" first; <c>maximum_volume</c> puts the share
+/// of the requested volume left behind first, ahead of the count. This example shows six of
+/// the seven objectives (all but <c>maximum_volume</c>).
 /// </summary>
 public static class Objectives
 {

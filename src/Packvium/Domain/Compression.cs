@@ -47,8 +47,7 @@ public readonly record struct Pressure
 }
 
 /// <summary>
-/// Occupied height of a <c>compressible</c> item under the load resting on it, fixed by
-/// <c>docs/IRREGULAR-ITEMS.md</c>. Every value is an exact integer or a reduced rational.
+/// Occupied height of a <c>compressible</c> item under the load resting on it. Every value is an exact integer or a reduced rational.
 /// Arbitrary precision because the pressure numerator multiplies a weight by the square of a
 /// metre in ticks, which leaves 128 bits for loads a real pallet can carry.
 /// </summary>

@@ -22,9 +22,9 @@ namespace Packvium.Examples;
 /// go in the corner.
 ///
 /// The execution plan is that second document. It is derived from an already validated result
-/// -- it calls no solver and no validator, and a test in each language asserts so. Anything it
-/// could decide on its own would be a decision made twice. An operator lock is the one way back
-/// into the solver, and it goes through the ordinary path: sections 5 and 6.
+/// -- it calls no solver and no validator. Anything it could decide on its own would be a
+/// decision made twice. An operator lock is the one way back into the solver, and it goes
+/// through the ordinary path: sections 5 and 6.
 /// </summary>
 public static class Execution
 {
@@ -61,7 +61,7 @@ public static class Execution
 
     public static void Run()
     {
-        // The time limit above is a safety fuse, not a target -- nothing in this scene comes close to it.
+        // The time limit above is a safety fuse, not a target -- nothing in this example comes close to it.
         var request = (JsonObject)JsonReader.Parse(Request);
         var result = JsonApi.PackFromJson(request);
         var plan = ExecutionPlan.Build(request, result);
@@ -93,7 +93,7 @@ public static class Execution
         }
         Console.WriteLine();
         Say("Every placement is listed and not one is numbered. The engines compute a safe",
-            "loading order from geometry this adapter never sees, so without one it says",
+            "loading order from geometry the plan builder never sees, so without one it says",
             "`unavailable` rather than guessing.");
         Console.WriteLine();
         Say("There is no third behaviour on purpose. Falling back to the order placements",
@@ -140,11 +140,11 @@ public static class Execution
             "the same bytes. That is stricter than the packing contract, and it can be: a",
             "plan is derived from a result, so there is nothing left to differ about.");
         Console.WriteLine();
-        Say("It does not follow that every engine packing the same *request* agrees. This",
-            "engine, like Python and PHP, is held to identical placements and produces this",
-            "exact form; the Rust and JavaScript engines are held to a valid answer at or",
-            "above the objective floor, so their plan for this request can be a different",
-            "length. Whose packing is better is a question the plan never answers.");
+        Say("It does not follow that every engine packing the same *request* agrees. Python,",
+            "PHP, Java, .NET and Go return identical results at the same version and produce",
+            "this exact form; Rust and JavaScript return a valid answer at or above the",
+            "objective floor, so their plan for this request can be a different length.",
+            "Whose packing is better is a question the plan never answers.");
         Console.WriteLine();
 
         Heading("5. The operator pins a box, and gets a second plan — never an edited one");

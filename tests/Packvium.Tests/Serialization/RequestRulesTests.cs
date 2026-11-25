@@ -77,6 +77,18 @@ public sealed class RequestRulesTests
         ["parallel"] = d => d["configuration"]!["parallel"] = true,
         ["objective-unknown"] = d => d["configuration"]!["objective"] = "cheapest",
         ["access-direction-unknown"] = d => Container(d)["access_directions"] = Width("""["upwards"]"""),
+        ["stacking-group-empty"] = d => Item(d)["stacking_group"] = "",
+        ["accepts-stacking-groups-entry-number"] = d => Item(d)["accepts_stacking_groups"] = Width("""["A", 3]"""),
+        ["deformable-boundary-kind-unknown"] = d => Container(d)["deformable_boundary"] = Width("""{"kind": "gusseted"}"""),
+        ["flat-bag-with-axles"] = d =>
+        {
+            Container(d)["deformable_boundary"] = Width("""{"kind": "flat_bag"}""");
+            Container(d)["axles"] = Width("""[{"position": "20"}, {"position": "180"}]""");
+        },
+        ["made-to-measure-minimum-zero"] = d => Container(d)["made_to_measure"] = Width(
+            """{"minimum": {"length": "100", "width": "0", "height": "100"}, "increment": {"length": "50", "width": "50", "height": "50"}}"""),
+        ["made-to-measure-off-grid"] = d => Container(d)["made_to_measure"] = Width(
+            """{"minimum": {"length": "100", "width": "100", "height": "100"}, "increment": {"length": "30", "width": "50", "height": "50"}}"""),
     };
 
     public static TheoryData<string, string, string, string> Malformed() => new()
@@ -113,9 +125,17 @@ public sealed class RequestRulesTests
         { "effort-key-unknown", "not_allowed", "/configuration/effort_budget/max_nodes", "is not a known field" },
         { "parallel", "not_allowed", "/configuration/parallel", "is not a known field" },
         { "objective-unknown", "not_allowed", "/configuration/objective",
-            "must be one of [\"default\",\"lowest_cost\",\"shipping_cost\",\"lowest_landed_cost\",\"open_dimension_height\",\"maximum_value\"]" },
+            "must be one of [\"default\",\"lowest_cost\",\"shipping_cost\",\"lowest_landed_cost\",\"open_dimension_height\",\"maximum_value\",\"maximum_volume\"]" },
         { "access-direction-unknown", "not_allowed", "/containers/0/access_directions/0",
             "must be one of [\"+x\",\"-x\",\"+y\",\"-y\",\"+z\",\"-z\"]" },
+        { "stacking-group-empty", "invalid_value", "/items/0/stacking_group", "must not be empty" },
+        { "accepts-stacking-groups-entry-number", "wrong_type", "/items/0/accepts_stacking_groups/1", "must be a string" },
+        { "deformable-boundary-kind-unknown", "not_allowed", "/containers/0/deformable_boundary/kind",
+            "must be one of [\"flat_bag\"]" },
+        { "flat-bag-with-axles", "not_allowed", "/containers/0/axles", "cannot be combined with deformable_boundary" },
+        { "made-to-measure-minimum-zero", "invalid_value", "/containers/0/made_to_measure/minimum/width", "must be positive" },
+        { "made-to-measure-off-grid", "invalid_value", "/containers/0/made_to_measure/increment/length",
+            "does not divide inner_dimensions minus minimum" },
     };
 
     [Theory]

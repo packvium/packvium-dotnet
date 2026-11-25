@@ -3,7 +3,7 @@ using Packvium.Packing;
 
 namespace Packvium.Serialization;
 
-/// <summary>The JSON entry point: <c>serialization.pack_from_dict</c>.</summary>
+/// <summary>The JSON entry point: a request document in, a result document out.</summary>
 public static class JsonApi
 {
     /// <summary>

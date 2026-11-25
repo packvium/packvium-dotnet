@@ -17,7 +17,7 @@ public sealed class CanonicalJsonException(string code, string message) : Argume
 }
 
 /// <summary>
-/// RFC 8785 canonical JSON (<c>_canonical_json.py</c>): the one spelling every engine agrees on
+/// RFC 8785 canonical JSON: the one spelling every engine agrees on
 /// byte for byte, and the one JavaScript already writes.
 ///
 /// - Object keys are sorted by their UTF-16 code units (<see cref="string.CompareOrdinal(string, string)"/>),

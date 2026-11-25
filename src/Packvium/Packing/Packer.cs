@@ -102,6 +102,28 @@ public sealed class Packer(PackingConfig? config = null, ExtensionRegistry? exte
         }
     }
 
+    /// <summary>
+    /// The unsupported-placements warning, or null when it does not apply. The default <c>minimum_support_ratio</c>
+    /// of 0 is kept so no packing answer changes; a caller who never set it is told instead. The
+    /// count reads the support ratio every placement already reports, O(placements) with no
+    /// geometry: an obstacle gives no support, so an item on one counts, while a fixed placement is
+    /// a supporter like any other. A lattice is always floor-up and has no placements.
+    /// </summary>
+    internal static string? UnsupportedPlacementsWarning(IEnumerable<PackedContainer> containers,
+        double minimumSupportRatio)
+    {
+        if (minimumSupportRatio != 0)
+        {
+            return null;
+        }
+        var count = containers.Sum(container =>
+            container.Placements.Count(placement => placement.SupportRatio == 0 && placement.Position.Z > 0));
+        return count == 0
+            ? null
+            : $"unsupported_placements: {count} placement(s) rest on nothing above the container floor; "
+              + "set configuration.minimum_support_ratio above 0 to require support";
+    }
+
     private PackingResult Ranked(RawSolution raw, PortfolioRun portfolio, PackingRequest request, ISolutionScorer scorer,
         Deadline deadline)
     {
@@ -123,6 +145,10 @@ public sealed class Packer(PackingConfig? config = null, ExtensionRegistry? exte
                 status = PackingStatus.InvalidResult;
                 warnings = [.. report.Issues.Select(issue => $"{issue.Code}: {issue.Detail}")];
             }
+        }
+        if (UnsupportedPlacementsWarning(raw.Containers, config.MinimumSupportRatio) is { } unsupported)
+        {
+            warnings = warnings.Add(unsupported);
         }
         var winnerMarked = false;
         var starts = portfolio.Starts.Select(record =>

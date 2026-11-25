@@ -5,9 +5,9 @@ using System.Linq;
 namespace Packvium.Examples;
 
 /// <summary>
-/// The examples print lists and tuples in Python's notation, and sections and prose as the Python
-/// examples lay them out, so each one's output can be compared line for line with what the
-/// Python example prints.
+/// The examples print lists, tuples and booleans in the notation shared by every Packvium
+/// language (<c>['a', 'b']</c>, <c>(0, 1)</c>, <c>True</c>), and lay out sections and prose
+/// the same way, so the output of one example reads the same in every language.
 /// </summary>
 internal static class Python
 {

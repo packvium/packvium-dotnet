@@ -10,7 +10,7 @@ using Packvium.Units;
 namespace Packvium.Locks;
 
 /// <summary>
-/// Operator locks, expressed as request-derived constraints (<c>packvium.locks</c>). A lock is an
+/// Operator locks, expressed as request-derived constraints. A lock is an
 /// ordinary placement constraint supplied through <see cref="ExtensionRegistry"/>, so the locked
 /// run is the ordinary run: the same portfolio, the same constraints, the same independent
 /// validation. There is no lock-aware solver and no relaxed validator, which is why a lock

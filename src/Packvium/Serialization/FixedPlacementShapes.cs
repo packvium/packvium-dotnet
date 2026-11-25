@@ -8,8 +8,7 @@ using Packvium.Units;
 namespace Packvium.Serialization;
 
 /// <summary>
-/// The request's <c>fixed_placements</c> as JSON gives them (<c>fixed_placements.require_fixed_placement_shapes</c>),
-/// or a refusal naming the first entry that is not the schema's shape. Nothing is coerced:
+/// The request's <c>fixed_placements</c> as JSON gives them, or a refusal naming the first entry that is not the schema's shape. Nothing is coerced:
 /// <c>"1"</c> and <c>true</c> are not instances, and a list is not a position. An absent or null
 /// field is no fixed placements. O(f) for f entries.
 /// </summary>

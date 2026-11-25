@@ -91,12 +91,28 @@ public static class ResultWriter
             ("container_type", Text(container.Id)),
             ("inner_dimensions", Dimensions(container.InnerDimensions, lengthUnit)),
             ("outer_dimensions", Dimensions(container.OuterDimensions ?? container.InnerDimensions, lengthUnit)),
+        };
+        // Present exactly when the container conforms to its contents, so a
+        // rigid container's bytes are unchanged.
+        if (packed.AchievedDimensions is { } achieved)
+        {
+            fields.Add(("achieved_dimensions", Dimensions(achieved, lengthUnit)));
+        }
+        // A packed made-to-measure container is the fabricated box, so its own price and tare are the box's.
+        if (container.MadeToMeasure is not null)
+        {
+            fields.Add(("made_to_measure", Object(
+                ("cost_minor", Integer(container.CostMinor)),
+                ("tare_weight", Weight(container.TareWeight, weightUnit)))));
+        }
+        fields.AddRange(
+        [
             ("payload_weight", Weight(packed.PayloadWeight, weightUnit)),
             ("gross_weight", Weight(packed.GrossWeight, weightUnit)),
             ("used_volume_ticks3", Text(packed.UsedVolume.ToString(CultureInfo.InvariantCulture))),
             ("volume_utilization", Text(DecimalRendering.FormatFixed(packed.Utilization, 6))),
             ("centre_of_mass_offset_ppm", Integer(packed.CentreOfMassOffsetPpm)),
-        };
+        ]);
         if (container.Axles is { } axles)
         {
             var (denominator, front, rear) = AxleLoad.Reactions(axles, LoadUnit.From(packed.Placements),

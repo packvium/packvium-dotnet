@@ -185,6 +185,18 @@ public sealed record PackingConfig
             RequirePlacementCoordinates, ParallelStarts, containerPlanBeamWidth, containerPlanNodeLimit,
             AccessDirections);
 
+    /// <summary>This configuration with placement coordinates required: a made-to-measure rung reports every placement.</summary>
+    public PackingConfig WithPlacementCoordinates() =>
+        RequirePlacementCoordinates
+            ? this
+            : new(Profile, TimeLimitMs, TopK, Seed, MaxContainers, Clearance, MinimumSupportRatio, ExactItemLimit,
+                MultiStartOrders, ValidateResult, MaxCandidatesPerItem, MaxCandidatePoints, Solvers, Objective, EffortBudget,
+                DimensionalWeightDivisor, DimensionalWeightLengthUnit, DimensionalWeightWeightUnit, true, ParallelStarts,
+                ContainerPlanBeamWidth, ContainerPlanNodeLimit, AccessDirections);
+
+    /// <summary>Whether the objective fills volume before it counts pieces (<c>maximum_volume</c>).</summary>
+    public bool RanksByVolume => Objective == "maximum_volume";
+
     public static PackingConfig Fast(long timeLimitMs = 200) =>
         new(SolverProfile.Fast, timeLimitMs, topK: 1, multiStartOrders: 1);
 

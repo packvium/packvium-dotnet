@@ -44,7 +44,7 @@ public sealed class SequenceReplayException(int index, int step, string reason)
 
 /// <summary>
 /// Whether placement <see cref="Index"/> could be reached and removed right now, with the full
-/// scene as it stands. It is reachable only when nothing still rests on it
+/// packing as it stands. It is reachable only when nothing still rests on it
 /// (<see cref="BlockedBySupport"/>), some allowed exit sweep is clear (<see cref="BlockedByNeighbors"/>
 /// names every blocker only when all of them are blocked), and nothing due at an earlier stop
 /// remains (<see cref="BlockedByRoute"/>).
@@ -53,8 +53,8 @@ public sealed record Reachability(int Index, bool Reachable, ImmutableSortedSet<
     ImmutableSortedSet<int> BlockedByNeighbors, ImmutableSortedSet<int> BlockedByRoute);
 
 /// <summary>
-/// Loading and unloading replay over a finished scene (<c>packing_sequence.py</c>), using the same
-/// sweep geometry the constraints use. Unloading starts from the full scene, and a box depends on
+/// Loading and unloading replay over a finished packing, using the same
+/// sweep geometry the constraints use. Unloading starts from the full packing, and a box depends on
 /// whatever rests on it; loading starts from an empty container, and a box depends on whatever it
 /// rests on. A sweep toward a wall measures the same region whether a box leaves or arrives
 /// through it, so the two share one accessibility test.
@@ -62,7 +62,7 @@ public sealed record Reachability(int Index, bool Reachable, ImmutableSortedSet<
 public static class RouteSequence
 {
     /// <summary>
-    /// An order the placements can be removed in, starting from the full scene, without moving a
+    /// An order the placements can be removed in, starting from the full packing, without moving a
     /// still-present placement first. Each step takes the lowest removable index. Throws
     /// <see cref="SequenceException"/> when no such order exists. O(n^3 * d) for n boxes and d
     /// directions, plus the replay.
@@ -76,14 +76,14 @@ public static class RouteSequence
         var order = new List<int>();
         while (present.Count > 0)
         {
-            var removable = present.Where(index => !dependsOn[index].Overlaps(present)
-                                                   && ClearDirection(index, boxes, present, container, directions))
-                .ToList();
-            if (removable.Count == 0)
+            // The lowest removable index, found by testing indices in ascending order and stopping
+            // at the first, rather than testing every present one and taking the minimum.
+            var chosen = Enumerable.Range(0, boxes.Count).FirstOrDefault(index => present.Contains(index)
+                && !dependsOn[index].Overlaps(present) && ClearDirection(index, boxes, present, container, directions), -1);
+            if (chosen < 0)
             {
                 throw new SequenceException([.. present]);
             }
-            var chosen = removable.Min();
             order.Add(chosen);
             present.Remove(chosen);
         }
@@ -110,7 +110,7 @@ public static class RouteSequence
     }
 
     /// <summary>
-    /// Replays an unloading order from the full scene and throws
+    /// Replays an unloading order from the full packing and throws
     /// <see cref="SequenceReplayException"/> at the first step that is not feasible.
     /// </summary>
     public static void ReplayRemovalOrder(IReadOnlyList<AxisAlignedBox> boxes, Dimensions container,
@@ -180,14 +180,12 @@ public static class RouteSequence
             var due = remaining.Where(index => stops[index] == stop).ToHashSet();
             while (due.Count > 0)
             {
-                var removable = due.Where(index => !dependsOn[index].Overlaps(remaining)
-                                                   && ClearDirection(index, boxes, remaining, container, directions))
-                    .ToList();
-                if (removable.Count == 0)
+                var chosen = Enumerable.Range(0, boxes.Count).FirstOrDefault(index => due.Contains(index)
+                    && !dependsOn[index].Overlaps(remaining) && ClearDirection(index, boxes, remaining, container, directions), -1);
+                if (chosen < 0)
                 {
                     throw new RouteSequenceException(stop, [.. due]);
                 }
-                var chosen = removable.Min();
                 order.Add(chosen);
                 remaining.Remove(chosen);
                 due.Remove(chosen);
@@ -197,7 +195,7 @@ public static class RouteSequence
     }
 
     /// <summary>
-    /// Per-placement reachability of the scene as it stands, one entry per box in input order: a
+    /// Per-placement reachability of the packing as it stands, one entry per box in input order: a
     /// snapshot ("what could come out if the door opened now"), not a search for a complete
     /// order, so it never throws <see cref="SequenceException"/>. With stops, a placement due later
     /// than the earliest stop still present is blocked by every placement due before it. O(n^2 * d)

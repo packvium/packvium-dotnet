@@ -59,7 +59,7 @@ public sealed class ContainerState
         StackSensitive = source.StackSensitive;
         RouteSensitive = source.RouteSensitive;
         CompressionSensitive = source.CompressionSensitive;
-        MaxZ = source.MaxZ;
+        (MaxX, MaxY, MaxZ) = (source.MaxX, source.MaxY, source.MaxZ);
         Occupied = [.. source.Occupied];
         Bounds = [.. source.Bounds];
         HullShapes = [.. source.HullShapes];
@@ -68,7 +68,11 @@ public sealed class ContainerState
         LatticeItems = source.LatticeItems;
     }
 
-    public Container Container { get; }
+    /// <summary>
+    /// The container this state fills. A made-to-measure trial swaps in the box cut for it once
+    /// its rung is solved; nothing reads the declared size after that.
+    /// </summary>
+    public Container Container { get; private set; }
 
     public int Sequence { get; }
 
@@ -87,6 +91,11 @@ public sealed class ContainerState
     public bool RouteSensitive { get; private set; }
 
     public bool CompressionSensitive { get; private set; }
+
+    /// <summary>Largest envelope x2 so far; with <see cref="MaxY"/> and <see cref="MaxZ"/> a flat bag's running extents.</summary>
+    public long MaxX { get; private set; }
+
+    public long MaxY { get; private set; }
 
     public long MaxZ { get; private set; }
 
@@ -107,6 +116,28 @@ public sealed class ContainerState
     public long PlacementCount => LatticeSummary?.Count ?? Placements.Count;
 
     public ContainerState Copy() => new(this);
+
+    /// <summary>A copy of this state holding <paramref name="container"/> instead, every placement unchanged.</summary>
+    public ContainerState CopyWith(Container container)
+    {
+        var copy = Copy();
+        copy.Container = container;
+        return copy;
+    }
+
+    /// <summary>
+    /// The dimensional weight, in weight ticks, a carrier bills for this container as filled: a flat
+    /// bag on its running extents, and nothing by volume while it is empty; a rigid container on its
+    /// declared outer size, else its inner size. O(1).
+    /// </summary>
+    public long BilledDimensionalTicks(PackingConfig config)
+    {
+        if (!Container.IsFlatBag)
+        {
+            return Billing.DimensionalTicks(Container.OuterDimensions ?? Container.InnerDimensions, config);
+        }
+        return Placements.Count == 0 ? 0 : Billing.DimensionalTicks(Dimensions.OfTicks(MaxX, MaxY, MaxZ), config);
+    }
 
     public static Bound Extent(AxisAlignedBox box) =>
         new(box.Origin.X, box.Origin.Y, box.Origin.Z, box.X2, box.Y2, box.Z2);
@@ -184,7 +215,8 @@ public sealed class ContainerState
         StackSensitive = StackSensitive || item.IsStackSensitive;
         RouteSensitive = RouteSensitive || item.StopIndex is not null;
         CompressionSensitive = compression;
-        MaxZ = Math.Max(MaxZ, placement.EnvelopeBox.Z2);
+        var box = placement.EnvelopeBox;
+        (MaxX, MaxY, MaxZ) = (Math.Max(MaxX, box.X2), Math.Max(MaxY, box.Y2), Math.Max(MaxZ, box.Z2));
     }
 
     private void Absorb(IEnumerable<Point> candidates)
@@ -320,7 +352,7 @@ public static class Loads
     }
 
     /// <summary>
-    /// Physical volume after propagating this scene's loads: compression makes appending one
+    /// Physical volume after propagating these placements' loads: compression makes appending one
     /// placement non-local, so the composite path rebuilds the support graph. O(n log n + e).
     /// </summary>
     public static Int128 UsedVolumeWithCurrentLoads(IReadOnlyList<Placement> placements) =>

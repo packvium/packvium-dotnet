@@ -59,12 +59,53 @@ public static class IndependentSolutionValidator
         issues.AddRange(seen.Except(expected).Order(CodePointComparer.Instance)
             .Select(itemId => new ValidationIssue("unknown_item", itemId)));
         CheckGroups(containers, issues);
+        CheckMadeToMeasure(request, containers, issues);
         CheckFixedPlacements(request, containers, issues);
         if (unpacked is not null)
         {
             CheckGroupAccounting(request, containers, issues);
         }
         return new ValidationReport(issues.Count == 0, [.. issues]);
+    }
+
+    /// <summary>The girth rule over the envelopes alone; the frame is checked per placement.</summary>
+    private static bool BagAdmits(PackedContainer packed)
+    {
+        var extent = FlatBag.ExtentOf(packed.Placements.Select(placement => placement.EnvelopeBox));
+        return FlatBag.GirthAdmits(packed.Container.InnerDimensions, extent.Length, extent.Width, extent.Height);
+    }
+
+    /// <summary>
+    /// Every made-to-measure box is the one its placements call for: re-cut from the
+    /// declared machine and the achieved extent, so a trial committed with a stale or mixed-up box
+    /// is caught. Containment was checked like any container's. O(p) per container.
+    /// </summary>
+    private static void CheckMadeToMeasure(PackingRequest request, IReadOnlyList<PackedContainer> containers,
+        List<ValidationIssue> issues)
+    {
+        var declared = new Dictionary<string, Container>(StringComparer.Ordinal);
+        foreach (var container in request.Containers)
+        {
+            declared[container.Id] = container;
+        }
+        foreach (var packed in containers)
+        {
+            if (!declared.TryGetValue(packed.Container.Id, out var machine) || machine.MadeToMeasure is null
+                || packed.AchievedDimensions is not { } achieved)
+            {
+                continue;
+            }
+            var expected = machine.Fabricate(Triple.Of(achieved));
+            var actual = packed.Container;
+            (string Code, bool Same)[] checks =
+            [
+                ("fabricated_dimensions_mismatch", actual.InnerDimensions == expected.InnerDimensions),
+                ("outer_dimensions_mismatch", actual.OuterDimensions == expected.OuterDimensions),
+                ("made_to_measure_cost_mismatch", actual.CostMinor == expected.CostMinor),
+                ("made_to_measure_tare_mismatch", actual.TareWeight == expected.TareWeight),
+            ];
+            issues.AddRange(checks.Where(check => !check.Same).Select(check => new ValidationIssue(check.Code, packed.Id)));
+        }
     }
 
     private sealed record FixedKey(string ContainerId, string ItemId, Point Position, Rotation Rotation)
@@ -216,6 +257,10 @@ public static class IndependentSolutionValidator
             && AxleLoad.Exceeded(axles, units, container.TareWeight.Ticks, container.InnerDimensions.Length.Ticks) is { } axle)
         {
             issues.Add(new ValidationIssue(axle.Code, $"{packed.Id}: {axle.Detail}"));
+        }
+        if (container.IsFlatBag && !BagAdmits(packed))
+        {
+            issues.Add(new ValidationIssue("bag_girth_exceeded", packed.Id));
         }
         if (packed.Placements.Any(p => p.Instance.Item.StopIndex is not null) && UnloadingOrderViolation(packed) is { } route)
         {

@@ -21,9 +21,8 @@ public sealed record PackingCall(
     string OutputWeightUnit);
 
 /// <summary>
-/// The JSON adapter: <c>serialization.pack_from_dict</c> up to the point it hands domain objects
-/// to the packer, reading every field in the reference engine's order so the first refusal is
-/// the same one.
+/// The JSON adapter, up to the point it hands domain objects to the packer. It reads every
+/// field in the order every Packvium engine reads it, so the first refusal is the same one.
 /// </summary>
 public static class RequestReader
 {
@@ -170,7 +169,7 @@ public static class RequestReader
             PythonCoercion.RawInt(budget.Get("max_restarts")));
     }
 
-    /// <summary>One <c>items[]</c> entry, read as <c>serialization._item</c> reads it; the lock layer sizes its reservations with it.</summary>
+    /// <summary>One <c>items[]</c> entry, read as every engine reads it; the lock layer sizes its reservations with it.</summary>
     internal static Item ReadItem(JsonObject raw, string unit)
     {
         var rotations = raw.Get("allowed_rotations") is { } authored
@@ -203,7 +202,9 @@ public static class RequestReader
             compressionRatioPpm: raw.GetPresent("compression_ratio") is { } ratio
                 ? Compression.RatioToPpm(PythonCoercion.Float(ratio))
                 : null,
-            maxCompressionPressureKpa: PythonCoercion.RawInt(raw.Get("max_compression_pressure_kpa")));
+            maxCompressionPressureKpa: PythonCoercion.RawInt(raw.Get("max_compression_pressure_kpa")),
+            stackingGroup: OptionalString(raw.Get("stacking_group")),
+            acceptsStackingGroups: PythonCoercion.StringMembers(raw.Get("accepts_stacking_groups") ?? new JsonArray([])));
     }
 
     /// <summary>Vertices cross the wire as non-negative offsets, read through <see cref="Units.Length"/>.</summary>
@@ -253,7 +254,33 @@ public static class RequestReader
             metadata: Metadata(raw.Get("metadata")),
             maxStackDensity: raw.GetPresent("max_stack_density") is { } density ? Measures.Weight(density) : null,
             axles: raw.GetPresent("axles") is { } axles ? ReadAxles(axles, unit) : null,
-            accessDirections: PythonCoercion.StringMembers(raw.Get("access_directions") ?? new JsonArray([])));
+            accessDirections: PythonCoercion.StringMembers(raw.Get("access_directions") ?? new JsonArray([])),
+            deformableBoundary: raw.GetPresent("deformable_boundary") is { } boundary
+                ? PythonCoercion.Str(PythonCoercion.Object(boundary).Require("kind"))
+                : null,
+            madeToMeasure: raw.GetPresent("made_to_measure") is { } machine
+                ? ReadMadeToMeasure(PythonCoercion.Object(machine), unit)
+                : null);
+    }
+
+    /// <summary>A <c>made_to_measure</c> block: an absent or null axis triple reads as zero, an absent price as none.</summary>
+    private static MadeToMeasure ReadMadeToMeasure(JsonObject raw, string unit)
+    {
+        Triple Sides(string name)
+        {
+            if (raw.GetPresent(name) is not { } value)
+            {
+                return default;
+            }
+            var sides = PythonCoercion.Object(value);
+            return new Triple(Measures.Length(sides.Require("length"), unit).Ticks,
+                Measures.Length(sides.Require("width"), unit).Ticks, Measures.Length(sides.Require("height"), unit).Ticks);
+        }
+        var price = raw.GetPresent("cost_per_square_metre_minor") is { } cost
+            ? PythonCoercion.Int(cost)
+            : 0;
+        return new MadeToMeasure(Sides("minimum"), Sides("increment"), price,
+            raw.GetPresent("tare_per_square_metre") is { } tare ? Measures.Weight(tare).Ticks : 0, Sides("outer_allowance"));
     }
 
     private static RateTable ReadRateTable(JsonObject raw) => new(

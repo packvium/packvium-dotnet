@@ -38,7 +38,7 @@ public readonly record struct Rational
 
     public Rational Multiply(BigInteger factor) => new(Numerator * factor, Denominator);
 
-    /// <summary>The integer this value rounds to, exactly as <c>units._rounded</c> decides it.</summary>
+    /// <summary>The integer this value rounds to under <paramref name="rounding"/>, the same in every engine.</summary>
     public BigInteger Round(Rounding rounding)
     {
         var quotient = BigInteger.DivRem(BigInteger.Abs(Numerator), Denominator, out var remainder);

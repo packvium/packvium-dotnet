@@ -39,6 +39,23 @@ public static class Nesting
     /// How much space one placement takes: its hull for a hull, its compressed height for a
     /// loaded compressible item, otherwise its box.
     /// </summary>
+    /// <summary>
+    /// The volume <see cref="OccupiedVolume"/> counts for this item before it is placed, in any
+    /// orientation: a hull its authored solid, which a proper rotation keeps, and any other item
+    /// its declared box. O(1) after the memoised shape's first call.
+    /// </summary>
+    public static Int128 ItemOccupiedVolume(ItemInstance instance)
+    {
+        var item = instance.Item;
+        if (item.ShapeType != ShapeType.ConvexHull)
+        {
+            return instance.Dimensions.Volume;
+        }
+        var vertices = item.HullVertices
+            ?? throw new InvalidOperationException("a convex_hull item always carries its vertices");
+        return Hull.ShapeFor(vertices, Rotation.LWH).Volume;
+    }
+
     public static Int128 OccupiedVolume(Placement placement)
     {
         var item = placement.Instance.Item;

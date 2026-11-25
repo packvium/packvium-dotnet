@@ -204,7 +204,7 @@ public sealed record HoldoutEvaluation(
 }
 
 /// <summary>
-/// Historical replay and holdout evaluation for a recommendation (<c>packvium.holdout</c>): would
+/// Historical replay and holdout evaluation for a recommendation: would
 /// it have improved past decisions, scored on a slice it was not derived from.
 ///
 /// The split is by time; a recommendation that cites a held-out decision is refused. Only what is

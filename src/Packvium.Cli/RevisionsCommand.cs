@@ -8,8 +8,8 @@ using Packvium.Serialization;
 namespace Packvium.Cli;
 
 /// <summary>
-/// <c>packvium revisions</c>: the batch probe of the tag's <c>conformance/revisions/run.py</c>,
-/// whose <c>conformance/request_errors/run.py</c> drives it too. stdin is a JSON list of cases;
+/// <c>packvium revisions</c>: a test-only subcommand that runs plan-revision operations and request
+/// admission in a batch. stdin is a JSON list of cases;
 /// stdout is one canonical JSON line per case, in order: <c>{"error", "json", "message"}</c>, and
 /// for a refused <c>admit</c> also its <c>reason</c> and <c>field</c>. A refusal is an outcome,
 /// not a failure, so the probe exits 0 unless it cannot run at all.

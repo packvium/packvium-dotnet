@@ -55,7 +55,9 @@ public static class BeamPack
             }
             var volumes = items.Any(item => item.Item.NestingHeight is not null)
                 ? null
-                : PrefixSums(items.Select(item => item.Dimensions.Volume));
+                // Occupied, not declared: the free space these are compared with is occupied
+                // volume, and two wedges each declaring the whole crate both fit in it.
+                : PrefixSums(items.Select(Nesting.ItemOccupiedVolume));
             var weights = hasMaxPayload ? PrefixSums(items.Select(item => (Int128)item.Weight.Ticks)) : null;
             return new Future(volumes, weights, items.Count);
         }
@@ -114,7 +116,7 @@ public static class BeamPack
                     expansions.Add(node with { Unplaced = [.. node.Unplaced, .. batch] });
                 }
             }
-            beam = [.. expansions.OrderBy(node => NodeKey(node, Future.None))];
+            beam = [.. expansions.OrderBy(node => NodeKey(node, Future.None, config.RanksByVolume))];
             beam = [.. beam.Take((int)Math.Min(branchWidth, int.MaxValue))];
             if (exhausted)
             {
@@ -130,13 +132,15 @@ public static class BeamPack
         SearchStats stats, Deadline deadline, long branchWidth, long width)
     {
         var nodeLimit = config.ContainerPlanNodeLimit;
+        var byVolume = config.RanksByVolume;
         long nodes = 0;
         List<Node> beam = [new(new ContainerState(container, sequence), [])];
         var incumbent = GreedyRollout(container, sequence, batches, config, constraints, stats, deadline);
         // Kept beside the incumbent, so each expansion costs one key, not two. With no future the
-        // key's first component is the unplaced count, kept apart so a loser is skipped unbuilt.
-        var incumbentKey = NodeKey(incumbent, Future.None);
-        var incumbentUnplaced = incumbent.Unplaced.Length;
+        // key's first component is the unplaced count, or minus the used volume under
+        // maximum_volume, kept apart so a loser is skipped unbuilt.
+        var incumbentKey = NodeKey(incumbent, Future.None, byVolume);
+        var incumbentLead = Lead(incumbent.State, incumbent.Unplaced.Length, byVolume);
         for (var position = 0; position < batches.Count; position++)
         {
             var batch = batches[position];
@@ -161,34 +165,34 @@ public static class BeamPack
             var precomputed = Future.Of(future, container.MaxPayload is not null);
             foreach (var expansion in expansions)
             {
-                // More unplaced items loses on the key's first component whatever follows, so the
-                // signature -- the costly part -- is built only for a candidate that can win, and
-                // the node only for one that does.
+                // A worse leading component loses whatever follows, so the signature -- the costly
+                // part -- is built only for a candidate that can win, and the node only for one that does.
                 var unplaced = expansion.Unplaced.Length + future.Length;
-                if (unplaced > incumbentUnplaced)
+                var lead = Lead(expansion.State, unplaced, byVolume);
+                if (lead > incumbentLead)
                 {
                     continue;
                 }
-                var candidateKey = NodeKey(expansion.State, unplaced, Future.None);
+                var candidateKey = NodeKey(expansion.State, unplaced, Future.None, byVolume);
                 if (candidateKey < incumbentKey)
                 {
                     incumbent = new Node(expansion.State, [.. expansion.Unplaced, .. future]);
                     incumbentKey = candidateKey;
-                    incumbentUnplaced = unplaced;
+                    incumbentLead = lead;
                 }
             }
             if (expansions.Count == 0)
             {
                 break;
             }
-            beam = [.. expansions.OrderBy(node => NodeKey(node, precomputed)).Take((int)Math.Min(width, int.MaxValue))];
+            beam = [.. expansions.OrderBy(node => NodeKey(node, precomputed, byVolume)).Take((int)Math.Min(width, int.MaxValue))];
             if (exhausted)
             {
                 return new SingleContainerSolution(incumbent.State, incumbent.Unplaced, false, deadline.Expired);
             }
         }
-        var completed = beam.Count > 0 ? beam.MinBy(node => NodeKey(node, Future.None))! : incumbent;
-        var chosen = incumbentKey < NodeKey(completed, Future.None) ? incumbent : completed;
+        var completed = beam.Count > 0 ? beam.MinBy(node => NodeKey(node, Future.None, byVolume))! : incumbent;
+        var chosen = incumbentKey < NodeKey(completed, Future.None, byVolume) ? incumbent : completed;
         return new SingleContainerSolution(chosen.State, chosen.Unplaced);
     }
 
@@ -238,17 +242,42 @@ public static class BeamPack
     }
 
     /// <summary>
-    /// The reference <c>_node_key</c>: the optimistic unpacked bound, then unplaced count, more
-    /// placements, lower stack, more used volume, and the placement signature as the final tie-break.
+    /// The beam's node rank: the optimistic unpacked bound, then unplaced count, more
+    /// placements, lower stack, more used volume, and the placement signature as the final
+    /// tie-break. Under <c>maximum_volume</c> the reachable volume leads instead, then the used
+    /// volume, the unplaced count, the stack and the signature.
     /// </summary>
-    private static SortKey NodeKey(Node node, Future future) => NodeKey(node.State, node.Unplaced.Length, future);
+    private static SortKey NodeKey(Node node, Future future, bool byVolume) =>
+        NodeKey(node.State, node.Unplaced.Length, future, byVolume);
 
-    private static SortKey NodeKey(ContainerState state, int unplacedCount, Future future)
+    private static SortKey NodeKey(ContainerState state, int unplacedCount, Future future, bool byVolume)
     {
         var signature = string.Join("|", state.Placements.Select(p =>
             $"{p.Instance.Id}@{p.EnvelopeOrigin.X},{p.EnvelopeOrigin.Y},{p.EnvelopeOrigin.Z}"));
-        return SortKey.Of(UnpackedLowerBound(state, unplacedCount, future), unplacedCount,
-            -state.Placements.Count, state.MaxZ, -state.UsedVolumeTicks, signature);
+        return byVolume
+            ? SortKey.Of(-ReachableVolume(state, future), -state.UsedVolumeTicks, unplacedCount, state.MaxZ, signature)
+            : SortKey.Of(UnpackedLowerBound(state, unplacedCount, future), unplacedCount,
+                -state.Placements.Count, state.MaxZ, -state.UsedVolumeTicks, signature);
+    }
+
+    /// <summary>The first component of a key built with no future, which the incumbent test compares alone.</summary>
+    private static Int128 Lead(ContainerState state, int unplacedCount, bool byVolume) =>
+        byVolume ? -state.UsedVolumeTicks : unplacedCount;
+
+    /// <summary>
+    /// An upper bound on the volume a node can still end with: what is placed, plus the future
+    /// items' total occupied volume capped by the free space. Under nesting nominal volumes are not
+    /// additive, so the free space alone is the bound. O(1).
+    /// </summary>
+    private static Int128 ReachableVolume(ContainerState state, Future future)
+    {
+        var used = state.UsedVolumeTicks;
+        if (future.Count == 0)
+        {
+            return used;
+        }
+        var free = Int128.Max(0, state.Container.InnerDimensions.Volume - used);
+        return used + (future.Volumes is { } volumes ? Int128.Min(free, volumes[^1]) : free);
     }
 
     /// <summary>

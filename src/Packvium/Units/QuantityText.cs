@@ -7,7 +7,7 @@ namespace Packvium.Units;
 
 /// <summary>
 /// Reads an authored quantity -- <c>12</c>, <c>12.5</c>, <c>3/16</c>, <c>12 3/8</c> -- into an
-/// exact rational, following <c>units._fraction</c> rule for rule, including the Unicode
+/// exact rational, by the rules every Packvium engine shares, including the Unicode
 /// digits and whitespace Python's <c>re</c> and <c>Decimal</c> accept.
 /// </summary>
 public static class QuantityText

@@ -11,7 +11,7 @@ using Packvium.Units;
 namespace Packvium.Revisions;
 
 /// <summary>
-/// Plan revisions (<c>revisions.py</c>; <c>docs/PLAN-REVISIONS.md</c> is the contract): an
+/// Plan revisions (<c>packvium-plan-revision/v1</c>): an
 /// append-only chain of exceptions against approved plans. A revision records what differed
 /// from an approved plan -- a missing item, a substituted carton, a lock, a verified placement --
 /// and derives the request the next plan solves. It is a pure function of its parent, the

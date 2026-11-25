@@ -119,6 +119,10 @@ public sealed class GridSolver : ISingleContainerSolver
         Field(item.Group);
         Field(item.MaxStackedItems);
         Field(item.StopIndex);
+        // A lattice joins same-type items only, so two types may share one exactly when they
+        // share the stacking rule as well.
+        Field(item.StackingGroup);
+        Field(item.AcceptsStackingGroups);
         return builder.ToString();
     }
 
@@ -134,6 +138,9 @@ public sealed class GridSolver : ISingleContainerSolver
                && !(container.VoidFillReserveRatio > 0)
                && container.MaxStackDensity is null
                && container.Axles is null
+               // The lattice counts cells against the rigid frame alone; a bag's girth rule couples
+               // the axes, which the per-candidate check applies exactly.
+               && !container.IsFlatBag
                && prototype.ShapeType == ShapeType.RigidCuboid;
     }
 
@@ -144,7 +151,9 @@ public sealed class GridSolver : ISingleContainerSolver
     {
         // Every non-floor cell has one full-area direct supporter; "multiple" is satisfiable
         // only on the floor and so caps the lattice at one layer.
-        var singleLayer = prototype.MustBeOnFloor || !prototype.Stackable || prototype.GroundContactRule == "multiple";
+        // Every lattice edge joins two items of this type, so the stacking-group rule holds for the
+        // whole lattice exactly when the type carries itself.
+        var singleLayer = prototype.MustBeOnFloor || !prototype.CarriesItself || prototype.GroundContactRule == "multiple";
         var nestingTicks = prototype.NestingHeight?.Ticks ?? 0;
         (SortKey Score, Layout Layout)? best = null;
         foreach (var (rotation, physical) in prototype.Dimensions.UniqueRotations(prototype.AllowedRotations))

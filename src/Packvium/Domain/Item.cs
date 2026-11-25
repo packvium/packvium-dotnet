@@ -50,7 +50,9 @@ public sealed class Item
         IEnumerable<Vertex>? hullVertices = null,
         long? compressionRatioPpm = null,
         long? maxCompressionPressureKpa = null,
-        long? value = null)
+        long? value = null,
+        string? stackingGroup = null,
+        IEnumerable<string>? acceptsStackingGroups = null)
     {
         Id = id;
         Dimensions = dimensions;
@@ -78,6 +80,8 @@ public sealed class Item
         Tags = ToSet(tags);
         IncompatibleTags = ToSet(incompatibleTags);
         EligibleContainerTags = ToSet(eligibleContainerTags);
+        StackingGroup = stackingGroup;
+        AcceptsStackingGroups = ToSet(acceptsStackingGroups);
     }
 
     public string Id { get; }
@@ -134,9 +138,28 @@ public sealed class Item
     /// <summary>Exact, unit-less worth for the <c>maximum_value</c> objective.</summary>
     public long? Value { get; }
 
-    /// <summary>Whether what rests on this item can change a verdict.</summary>
+    /// <summary>Which stacking class this item belongs to; see <see cref="AcceptsStackingGroups"/>.</summary>
+    public string? StackingGroup { get; }
+
+    /// <summary>
+    /// The classes this item may carry directly on its top face. Empty is unconstrained, like
+    /// <see cref="Tags"/>; a non-empty set is closed, so an item with no class rests on no
+    /// constrained item: a forgotten classification fails closed, never open.
+    /// </summary>
+    public FrozenSet<string> AcceptsStackingGroups { get; }
+
+    /// <summary>
+    /// Whether what rests on this item can change a verdict. A <see cref="StackingGroup"/> alone
+    /// does not count: such an item is refused only by a constrained item beneath it, and that
+    /// item already switched the support graph on.
+    /// </summary>
     public bool IsStackSensitive =>
-        !Stackable || MaxTopLoad is not null || MaxStackedItems is not null || MaxCompressionPressureKpa is not null;
+        !Stackable || AcceptsStackingGroups.Count > 0 || MaxTopLoad is not null || MaxStackedItems is not null || MaxCompressionPressureKpa is not null;
+
+    /// <summary>Whether a column of this one item type passes every stacking edge.</summary>
+    public bool CarriesItself =>
+        Stackable && (AcceptsStackingGroups.Count == 0
+                      || (StackingGroup is not null && AcceptsStackingGroups.Contains(StackingGroup)));
 
     public ImmutableArray<ItemInstance> Instances() =>
         [.. Enumerable.Range(1, Quantity).Select(sequence => new ItemInstance(this, sequence))];

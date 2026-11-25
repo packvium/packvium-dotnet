@@ -139,6 +139,29 @@ public sealed class WeightRebalanceTests
     }
 
     [Fact]
+    public void ACompactLatticeCanSupplyAnItemWithoutLosingItsOtherPlacements()
+    {
+        var box = Box("box");
+        var cube = new Item("cube", Dimensions.Mm("40", "40", "40"), Weight.Parse("1000 g"), quantity: 3);
+        var lattice = new LatticeSummary(cube.Id, Rotation.LWH, cube.Dimensions, cube.Dimensions,
+            3, 1, cube.Dimensions.Height.Ticks, 0, 3, cube.Weight.Ticks);
+        PackedContainer[] packed = [
+            new(box, 1, [], lattice, [.. cube.Instances()]),
+            Packed(box, 2),
+        ];
+        var request = new PackingRequest([cube], [box]);
+        var config = new PackingConfig();
+
+        var outcome = WeightRebalance.Rebalance(request, packed, [], config, maxMoves: 1);
+
+        Assert.Single(outcome.Moves);
+        Assert.Equal([2000 * TicksPerGram, 1000 * TicksPerGram], Weights(outcome.Containers));
+        AssertAccountingHolds(request, outcome.Containers, []);
+        AssertValid(request, outcome.Containers, [], config);
+        Assert.Empty(packed[0].Placements);
+    }
+
+    [Fact]
     public void ASingleContainerHasNothingToRebalance()
     {
         var solo = Cube("solo", "500 g");

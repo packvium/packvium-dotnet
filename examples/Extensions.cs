@@ -100,8 +100,8 @@ public static class Extensions
         }
 
         Console.WriteLine();
-        Console.WriteLine("Neither rule above exists on the wire. Hand the same request to the Rust or");
-        Console.WriteLine("JavaScript engine and you get the unrestricted answer -- which is exactly why a");
+        Console.WriteLine("Neither rule above exists on the wire. Hand the same request to any other Packvium");
+        Console.WriteLine("engine and you get the unrestricted answer -- which is exactly why a");
         Console.WriteLine("rule everyone must obey belongs in the request as data, not in a class.");
     }
 

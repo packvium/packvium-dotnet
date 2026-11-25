@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
+using System.Numerics;
 using Packvium.Domain;
 using Packvium.Units;
 
@@ -58,7 +59,7 @@ public sealed class ScoreVector : IComparable<ScoreVector>, IEquatable<ScoreVect
     public static bool operator >=(ScoreVector left, ScoreVector right) => left.CompareTo(right) >= 0;
 }
 
-/// <summary>A Strategy that ranks finished solutions; see <c>docs/OBJECTIVE.md</c>.</summary>
+/// <summary>A Strategy that ranks finished solutions: a lower <see cref="ScoreVector"/> is better.</summary>
 public interface ISolutionScorer
 {
     ScoreVector ScoreContainers(IReadOnlyList<PackedContainer> containers, IReadOnlyList<UnpackedItem> unpacked);
@@ -120,7 +121,7 @@ public class ShippingCostSolutionScorer(PackingConfig config) : ISolutionScorer
     {
         var keys = DefaultSolutionScorer.Keys(containers, unpacked);
         var billable = containers.Aggregate(0L,
-            (total, packed) => checked(total + Billing.BilledTicks(packed.Container, packed.GrossWeight.Ticks, Config)));
+            (total, packed) => checked(total + Billing.BilledTicks(packed, Config)));
         return new([keys[0], billable, keys[1], keys[3], keys[4]]);
     }
 }
@@ -147,7 +148,7 @@ public sealed class LandedCostSolutionScorer(PackingConfig config) : ShippingCos
             var table = packed.Container.RateTable ?? throw new UnknownObjectiveException(
                 "the lowest_landed_cost objective requires a rate_table on every container; "
                 + $"'{packed.Container.Id}' has none");
-            var billed = Billing.BilledTicks(packed.Container, packed.GrossWeight.Ticks, Config);
+            var billed = Billing.BilledTicks(packed, Config);
             if (table.ChargeMinorOrNull(Billing.Grams(billed)) is not { } charge)
             {
                 landed = Billing.UnpriceableMinor;
@@ -181,6 +182,42 @@ public sealed class MaximumValueSolutionScorer : ISolutionScorer
     }
 }
 
+/// <summary>
+/// The share of the requested item volume left unpacked, ahead of how many items that is:
+/// fill the space rather than place the most pieces. <c>unpacked_volume_ppm</c> is
+/// <c>ceil(unpacked x 10^6 / requested)</c> in nominal item volume, rounded up so an incomplete
+/// answer never scores zero. O(n) for n item instances.
+/// </summary>
+public sealed class MaximumVolumeSolutionScorer : ISolutionScorer
+{
+    public ScoreVector ScoreContainers(IReadOnlyList<PackedContainer> containers, IReadOnlyList<UnpackedItem> unpacked)
+    {
+        var keys = DefaultSolutionScorer.Keys(containers, unpacked);
+        var unpackedVolume = unpacked.Aggregate(BigInteger.Zero, (sum, item) => sum + (BigInteger)item.Instance.Dimensions.Volume);
+        var packedVolume = BigInteger.Zero;
+        foreach (var packed in containers)
+        {
+            var instances = packed.LatticeItems.IsEmpty
+                ? packed.Placements.Select(placement => placement.Instance)
+                : packed.LatticeItems;
+            packedVolume = instances.Aggregate(packedVolume, (sum, instance) => sum + (BigInteger)instance.Dimensions.Volume);
+        }
+        var requested = unpackedVolume + packedVolume;
+        var ppm = CeilingPpm(unpackedVolume, requested);
+        return new([ppm, keys[0], keys[1], keys[2], keys[3]]);
+    }
+
+    private static long CeilingPpm(BigInteger unpackedVolume, BigInteger requested)
+    {
+        if (requested.IsZero)
+        {
+            return 0;
+        }
+        var quotient = BigInteger.DivRem(unpackedVolume * DefaultSolutionScorer.Scale, requested, out var remainder);
+        return (long)(remainder.Sign > 0 ? quotient + 1 : quotient);
+    }
+}
+
 /// <summary>The Registry of named objectives a request may select.</summary>
 public static class ObjectiveScorers
 {
@@ -193,6 +230,7 @@ public static class ObjectiveScorers
             ["lowest_landed_cost"] = LandedCostSolutionScorer.FromConfig,
             ["open_dimension_height"] = _ => new OpenDimensionSolutionScorer(),
             ["maximum_value"] = _ => new MaximumValueSolutionScorer(),
+            ["maximum_volume"] = _ => new MaximumVolumeSolutionScorer(),
         };
 
     public static ISolutionScorer Resolve(string name, PackingConfig? config = null) =>
@@ -214,7 +252,7 @@ public static class ObjectiveScorers
         }
         foreach (var packed in containers)
         {
-            var grams = Billing.Grams(Billing.BilledTicks(packed.Container, packed.GrossWeight.Ticks, config));
+            var grams = Billing.Grams(Billing.BilledTicks(packed, config));
             if (packed.Container.RateTable is not { } table)
             {
                 return (packed.Container.Id, grams, 0);

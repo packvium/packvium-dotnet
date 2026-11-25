@@ -171,7 +171,7 @@ public sealed record OutcomeEvent
 }
 
 /// <summary>
-/// Append-only store of outcome events, indexed by decision (<c>packvium.outcomes</c>). It never
+/// Append-only store of outcome events, indexed by decision. It never
 /// reads, re-runs or overrides a packing decision's validation: it only appends structured facts
 /// about decisions some already-validated system produced. In memory: it defines the contract, a
 /// deployment backs it with durable storage.

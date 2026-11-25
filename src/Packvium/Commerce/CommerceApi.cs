@@ -10,7 +10,7 @@ using static Packvium.Commerce.CommerceJson;
 namespace Packvium.Commerce;
 
 /// <summary>
-/// The exported commercial and control-plane API (<c>docs/COMMERCE-API.md</c>): three
+/// The exported commercial and control-plane API: three
 /// deterministic functions over one commerce document. Each answers with a result document;
 /// a rejection is an answer (<c>status: rejected</c>), and only a malformed input throws
 /// <see cref="CommerceInputException"/>. Commerce is a leaf: it shares only the JSON value

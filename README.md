@@ -3,17 +3,19 @@
 Deterministic 3D cartonization and rectangular bin packing for .NET, with exact integer
 geometry and no runtime dependencies.
 
-Packvium for .NET is a full C# reimplementation of the Packvium reference engine, not a
-binding over another one. It accepts the same requests and returns the same results as the
-Python and PHP engines. Its tests run the shared conformance corpus, and every result
-matches the reference result byte for byte.
+Packvium for .NET is a full C# implementation of Packvium, not a binding over another
+engine. It accepts the same requests as every Packvium engine. Python, PHP, Java, .NET and Go
+return identical results at the same version; Rust and JavaScript return a valid answer at or
+above the objective floor. Every release is checked against the reference engine, the Python
+package `packvium`, byte for byte.
 
-> **Version 1.5.0.** This release corresponds to Packvium 1.5.0 in the other languages, and
-> its tests run the 1.5.0 conformance corpus: every packing fixture, every commerce case,
+> **Version 1.6.0.** This release corresponds to Packvium 1.6.0 in the other languages, and
+> it was checked against the 1.6.0 conformance corpus: every packing request, every commerce case,
 > every execution plan, every operator-lock scenario, every operational-artifact case, every
-> malformed-request case and every plan-revision case.
+> malformed-request case, every plan-revision case, and every case that pins the
+> unsupported-placements warning or an unpacked reason.
 > Field names, status codes and the objective vector stay the same for all of 1.x.
-> Read [GUARANTEES.md](https://github.com/packvium/packvium-python/blob/main/docs/GUARANTEES.md)
+> Read [Packvium's guarantees](https://github.com/packvium/packvium-python/blob/v1.6.0/docs/GUARANTEES.md)
 > before relying on a result.
 
 ## Contents
@@ -23,6 +25,7 @@ matches the reference result byte for byte.
 - [Packing with domain objects](#packing-with-domain-objects)
 - [The JSON request API](#the-json-request-api)
 - [Constraints and objectives](#constraints-and-objectives)
+- [Boxes cut to measure, flat bags and stacking groups](#boxes-cut-to-measure-flat-bags-and-stacking-groups)
 - [Commerce](#commerce)
 - [Execution plans](#execution-plans)
 - [Operational artifacts](#operational-artifacts)
@@ -41,7 +44,7 @@ matches the reference result byte for byte.
 ## Install
 
 ```bash
-dotnet add package Packvium --version 1.5.0
+dotnet add package Packvium --version 1.6.0
 ```
 
 The package targets **.NET 8** (`net8.0`) and **.NET 10** (`net10.0`), and has no runtime
@@ -106,7 +109,7 @@ into the shared JSON result document.
 ## The JSON request API
 
 A request is a JSON document and so is the result. `JsonApi.PackFromJson` takes the same
-request the other engines take and returns the same result document:
+request every Packvium engine takes and returns a result in the same format:
 
 ```csharp
 using Packvium.Serialization;
@@ -188,15 +191,29 @@ Item[] items =
 ```
 
 The objective decides what "best" means. Every objective is an exact integer vector compared
-lexicographically, and every one puts the number of items left behind first:
+lexicographically, lower first. Six of the seven put the number of items left behind first;
+`maximum_volume` puts the share of the requested volume left behind first:
 
 ```csharp
 var cheapest = new PackingConfig(objective: "lowest_cost", timeLimitMs: 60_000);
 var byWeight = new PackingConfig(objective: "shipping_cost", dimensionalWeightDivisor: 5000, timeLimitMs: 60_000);
 ```
 
-`default`, `lowest_cost`, `shipping_cost`, `lowest_landed_cost`, `open_dimension_height` and
-`maximum_value` are available; `Objectives.cs` shows each one choosing differently.
+`default`, `lowest_cost`, `shipping_cost`, `lowest_landed_cost`, `open_dimension_height`,
+`maximum_value` and `maximum_volume` are available; `Objectives.cs` shows six of the seven
+objectives (all but `maximum_volume`) choosing differently. `maximum_volume` ranks the share of
+the requested volume left behind ahead of the number of pieces, the way container-loading
+benchmarks are scored, so one large item can beat two small ones:
+
+```csharp
+var fillTheSpace = new PackingConfig(objective: "maximum_volume", timeLimitMs: 60_000);
+```
+
+With the default `minimumSupportRatio` of 0 an item may stand above the floor with nothing
+under it. Such a result ends its `Warnings` with
+`unsupported_placements: N placement(s) rest on nothing above the container floor; set
+configuration.minimum_support_ratio above 0 to require support`, the same line in every engine.
+No answer changes.
 
 A rule the request has no field for is an `IPlacementConstraint`. It answers about one
 candidate position and never searches; it can refuse a candidate, never force one:
@@ -214,6 +231,54 @@ sealed class FragileHeightLimit(Length limit) : IPlacementConstraint
 
 var restricted = new Packer(PackingConfig.Balanced(timeLimitMs: 60_000),
     new ExtensionRegistry([new FragileHeightLimit(Length.Parse("400 mm"))])).Pack(items, containers);
+```
+
+## Boxes cut to measure, flat bags and stacking groups
+
+A **made-to-measure** container is an on-demand box machine. Its `InnerDimensions` is the
+largest box it cuts; `MadeToMeasure` adds the smallest size and the cut step per axis, in
+ticks, and the prices. The packed container is the box that ships: `AchievedDimensions` is the
+extent of its load, and its inner size, outer size, cost and tare are the fabricated box's.
+
+```csharp
+var machine = new Container("machine", Dimensions.Mm("1510", "1510", "1510"), costMinor: 40,
+    madeToMeasure: new MadeToMeasure(
+        minimum: new Triple(Length.Parse("60 mm").Ticks, Length.Parse("60 mm").Ticks, Length.Parse("60 mm").Ticks),
+        increment: new Triple(Length.Parse("25 mm").Ticks, Length.Parse("25 mm").Ticks, Length.Parse("25 mm").Ticks),
+        costPerSquareMetreMinor: 1000));
+var cubes = new Item("cube", Dimensions.Mm("100", "100", "100"), Weight.Parse("100 g"), quantity: 8);
+var box = new Packer(new PackingConfig(SolverProfile.Fast, 60_000)).Pack([cubes], [machine]).Containers[0];
+Console.WriteLine($"{box.Container.InnerDimensions.Length.Ticks / Length.TicksPerMm} mm for {box.Container.CostMinor}");
+// 210 mm for 305
+```
+
+A JSON request that gives such a container axles, obstacles or a void-fill reserve, or a fixed
+placement, is refused with `UnsupportedFeatureException`.
+
+A **flat bag** (`deformableBoundary: FlatBag.Kind`, or `"deformable_boundary": {"kind":
+"flat_bag"}`) reads `InnerDimensions` as a poly mailer's flat length, flat width and largest
+filled thickness. A packing is admitted only when length plus thickness and width plus
+thickness of the load fit the bag, and the bag is billed on its `AchievedDimensions`:
+
+```csharp
+var mailer = new Container("mailer", Dimensions.Mm("240", "140", "100"), deformableBoundary: FlatBag.Kind);
+var books = new Item("book", Dimensions.Mm("200", "100", "20"), Weight.Parse("300 g"), quantity: 3,
+    allowedRotations: [Rotation.LWH]);
+var bags = new Packer(new PackingConfig(SolverProfile.Fast, 60_000)).Pack([books], [mailer]);
+Console.WriteLine(string.Join(", ", bags.Containers.Select(bag => bag.AchievedDimensions!.Height.Ticks / Length.TicksPerMm)));
+// 40, 20
+```
+
+**Stacking groups** say which items may rest directly on which: `stackingGroup` names an
+item's class and `acceptsStackingGroups` the classes it may carry. An empty list carries
+anything; a non-empty one is closed, so an item with no class rests on no constrained item, and
+`stackable: false` still wins.
+
+```csharp
+var drum = new Item("drum", Dimensions.Mm("400", "400", "400"), Weight.Parse("5 kg"), quantity: 2,
+    stackingGroup: "drum", acceptsStackingGroups: ["carton"]);
+var crate = new Item("crate", Dimensions.Mm("400", "400", "400"), Weight.Parse("1 kg"), quantity: 2,
+    stackingGroup: "crate");
 ```
 
 ## Commerce
@@ -258,7 +323,7 @@ var plan = ExecutionPlan.Build(request, result);
 // Steps are numbered only when you supply a loading order; otherwise the order is "unavailable".
 var ordered = ExecutionPlan.Build(request, result, new Dictionary<int, IReadOnlyList<int>> { [0] = [1, 0] });
 
-string canonical = ExecutionPlan.CanonicalJson(plan);   // the same bytes as the reference adapter
+string canonical = ExecutionPlan.CanonicalJson(plan);   // the same bytes every Packvium engine emits
 ```
 
 A loading order must be a permutation of the container's steps; anything else, or a result
@@ -453,8 +518,8 @@ var recommendation = Recommendations.Propose("rec-cartons-2024", "adopt the prop
 
 ## Command line
 
-`src/Packvium.Cli` is a command-line program with the same contract as the other engines'
-CLIs:
+The NuGet package is the library only. The command-line program in `src/Packvium.Cli` is not
+packed; build it from source. It keeps the same contract as every Packvium command line:
 - It reads a JSON packing request on standard input and writes the result JSON to standard
   output.
 - When a request is refused, it exits with status 1 and prints the reason on standard error.
@@ -470,9 +535,8 @@ echo '{"items":[{"id":"box","quantity":8,"dimensions":{"length":"50","width":"50
 way and prints the canonical result document. A malformed case exits 1 with `input error:` on
 standard error. A rejection is a normal answer and exits 0.
 
-`Packvium.Cli artifacts` is the batch probe of the release's artifact conformance run, and
-`Packvium.Cli revisions` that of its plan-revision and malformed-request runs: a JSON list of
-cases on standard input, one JSON line per case on standard output.
+`Packvium.Cli artifacts` and `Packvium.Cli revisions` are test-only subcommands: each reads a
+JSON list of cases on standard input and writes one JSON line per case on standard output.
 
 ## Examples
 
@@ -493,7 +557,7 @@ have failed you.
 | File | Run it with | What it shows |
 | --- | --- | --- |
 | [`Basic.cs`](https://github.com/packvium/packvium-dotnet/blob/main/examples/Basic.cs) | `-- basic` | The smallest useful call: items go in, placements come out. |
-| [`Objectives.cs`](https://github.com/packvium/packvium-dotnet/blob/main/examples/Objectives.cs) | `-- objectives` | All six objectives, on scenes where they choose differently, including the rate card that makes the heavier shipment the cheaper one. |
+| [`Objectives.cs`](https://github.com/packvium/packvium-dotnet/blob/main/examples/Objectives.cs) | `-- objectives` | Six of the seven objectives (all but `maximum_volume`), on loads where they choose differently, including the rate card that makes the heavier shipment the cheaper one. |
 | [`Constraints.cs`](https://github.com/packvium/packvium-dotnet/blob/main/examples/Constraints.cs) | `-- constraints` | Upright-only, floor-only, non-stackable, top-load limits and tags that keep two items apart, plus how to read why an item was refused. |
 | [`Units.cs`](https://github.com/packvium/packvium-dotnet/blob/main/examples/Units.cs) | `-- units` | Why there are no floats: fractional inches, exact ticks, and the one tick between a fit and a refusal. |
 | [`Serialization.cs`](https://github.com/packvium/packvium-dotnet/blob/main/examples/Serialization.cs) | `-- serialization` | The request as JSON, the result in full, and which mistakes are refused and which are ignored. |
@@ -512,11 +576,8 @@ have failed you.
 | [`Trucking.cs`](https://github.com/packvium/packvium-dotnet/blob/main/examples/Trucking.cs) | `-- trucking` | A van on a three-stop route within its axle ratings: the axle reactions, the unloading and loading orders, and what the driver can reach. |
 | [`Errors.cs`](https://github.com/packvium/packvium-dotnet/blob/main/examples/Errors.cs) | `-- errors` | A refused request turned into a useful answer, the way a web handler would: reason, pointer and message, items in place that cannot be there, and a short load that is not an error. |
 
-The test suite runs every example and compares its output with what the Python example of
-the same release prints. The only lines allowed to differ are listed in the test's
-`LanguageLines` map, because they are about the language rather than the packing: a file or
-command name, how each language spells null or names an exception type, the engine named in a
-refusal, and section 4 of `execution`, which speaks for this engine rather than for four.
+The test suite runs every example and checks its output against a recorded copy; the output
+uses the notation shared by every Packvium language.
 
 ## Determinism
 
@@ -537,29 +598,27 @@ The same input and seed always give the same result, on every machine and every 
 ## Guarantees
 
 The guarantees are the same as in every Packvium engine, and
-[GUARANTEES.md](https://github.com/packvium/packvium-python/blob/main/docs/GUARANTEES.md) states
-them. This port adds the following:
+[Packvium's guarantees](https://github.com/packvium/packvium-python/blob/v1.6.0/docs/GUARANTEES.md)
+states them. Every release of this package is checked against the shared Packvium conformance
+corpus for that version, which lives outside this repository:
 
-- **Every corpus case passes.** All 402 packing fixtures of the 1.5.0 conformance corpus match
-  the reference engine's canonical result byte for byte, all 55 commerce cases pass the
-  release's own commerce harness, the execution plan of every one of the 402 golden results is
-  byte-identical to the reference adapter's, all six operator-lock scenarios of the release
-  pass, all 423 operational-artifact cases (402 results and 21 edge cases) give the
-  reference's JSON, CSV and HTML byte for byte, or its error code, all 131 malformed requests
-  are refused with the reference's code, reason, field and message, and all 102 plan-revision
-  cases give the reference's bytes, digest, audit or refusal.
-- **Conformance is checked by the release's own harness.** The command-line program is driven
-  through that harness, the reference's independent result validator accepts every result, and
-  the release's artifact schema and reference consumer accept every artifact, and its
-  revision schema every revision.
+- **Packing.** All 435 packing requests with a recorded answer give the reference engine's
+  result byte for byte in canonical form, and all 12 requests that must be refused are refused
+  with the expected message.
+- **Everything built from a result.** The execution plan of every one of those 435 results,
+  all 456 operational-artifact cases (JSON, CSV and HTML, or the expected error code), all 102
+  plan-revision cases and all six operator-lock cases give the reference engine's bytes.
+- **Requests and commerce.** All 177 malformed requests are refused with the reference engine's
+  code, reason, field and message, and all 55 commerce cases give its answer.
+- **Warnings and reasons.** The 3 cases that pin the unsupported-placements warning and the 9
+  that pin an unpacked reason give the expected warning and reasons.
 
-Full conformance runs in the Packvium suite repository, which holds the shared corpus. In this
-repository, `dotnet test` runs the unit tests, the CLI tests and every example against the
-Python example's recorded output; the corpus tests skip and say why.
+In this repository, `dotnet test` runs the unit tests, the CLI tests and every example; the
+tests that need the conformance corpus skip and say why.
 
 ## Differences from the reference engine
 
-Valid requests get identical results. The port differs in a few places, none of which the
+Valid requests get identical results. This package differs in a few places, none of which the
 conformance corpus reaches:
 
 - **64-bit ticks.** Lengths and weights are stored as 64-bit ticks, as in PHP. If a value would
@@ -574,7 +633,7 @@ conformance corpus reaches:
 ## Versioning
 
 The package follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and each
-version matches the Packvium release of the same number: 1.5.0 here passes the 1.5.0
+version matches the Packvium release of the same number: 1.6.0 here passes the 1.6.0
 conformance corpus. The request and result formats, status codes and the objective vector are
 frozen for all of 1.x. What changed in each release is in the
 [changelog](https://github.com/packvium/packvium-dotnet/blob/main/CHANGELOG.md).
@@ -582,9 +641,10 @@ frozen for all of 1.x. What changed in each release is in the
 ## The Packvium family
 
 There are packages for Python (`pip install packvium`), PHP (`composer require
-packvium/packvium`), Rust, Node.js and the browser. They all accept the same requests and
-return the same results, so you can mix them in one system. Documentation, the constraint
-reference and benchmarks are at [packvium.com](https://packvium.com).
+packvium/packvium`), Java, Go, Rust, Node.js and the browser. They all accept the same requests,
+so you can mix them in one system. Python, PHP, Java, .NET and Go return identical results at
+the same version; Rust and JavaScript return a valid answer at or above the objective floor.
+Documentation, the constraint reference and benchmarks are at [packvium.com](https://packvium.com).
 
 ## License
 

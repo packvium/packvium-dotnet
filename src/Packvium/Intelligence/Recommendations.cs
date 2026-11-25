@@ -161,7 +161,7 @@ public sealed record ApprovalRecord
 }
 
 /// <summary>
-/// Carton-catalog and rule-change recommendations (<c>packvium.recommendations</c>). A proposal is
+/// Carton-catalog and rule-change recommendations. A proposal is
 /// built from a paired baseline/treatment comparison and is withheld -- <c>null</c>, not an
 /// exception and not a low number -- when the evidence is too thin. Publishing is a separate,
 /// explicit act through <see cref="Approve"/>, <see cref="ApproveCatalog"/> or

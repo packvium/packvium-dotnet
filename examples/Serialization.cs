@@ -12,8 +12,7 @@ namespace Packvium.Examples;
 ///     dotnet run --project examples -- serialization
 ///
 /// A request is a JSON document and so is the result. <c>JsonApi.PackFromJson</c> is the
-/// same entry point the command line uses, which is how the cross-language conformance
-/// harness talks to every engine.
+/// same entry point the command line uses, and every Packvium engine takes the same document.
 /// </summary>
 public static class Serialization
 {

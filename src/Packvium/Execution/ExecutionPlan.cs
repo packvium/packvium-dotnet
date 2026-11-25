@@ -9,8 +9,8 @@ using Packvium.Serialization;
 namespace Packvium.Execution;
 
 /// <summary>
-/// An execution plan derived from an already validated packing result (<c>execution.py</c>;
-/// <c>docs/EXECUTION-PLAN.md</c> is the contract). A result answers what goes where; an operator
+/// An execution plan derived from an already validated packing result
+/// (<c>packvium-execution-plan/v1</c>). A result answers what goes where; an operator
 /// needs what to do first and why this carton. This turns the first into the second and is
 /// built so that it cannot do anything else: it reads the result's JSON form only, imports no
 /// solver and no validator, holds no registry and reads no clock, so the same result yields the
@@ -45,10 +45,10 @@ public static class ExecutionPlan
     /// Derive the execution plan for one validated result, in its JSON form.
     /// </summary>
     /// <param name="request">Accepted for the reference's signature; nothing in a plan is read from it yet.</param>
-    /// <param name="result">The result document, as <c>ResultWriter</c> writes it or as a golden stores it.</param>
+    /// <param name="result">The result document, as <c>ResultWriter</c> writes it or as it was stored.</param>
     /// <param name="loadingOrders">
     /// A container's index to the engine-computed order its placements are loaded in. Injected,
-    /// because the order is a statement about physics this adapter must not make for itself.
+    /// because the order is a statement about physics the plan builder must not make for itself.
     /// </param>
     public static JsonObject Build(JsonObject request, JsonObject result,
         IReadOnlyDictionary<int, IReadOnlyList<int>>? loadingOrders = null)

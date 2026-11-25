@@ -10,6 +10,7 @@ You need the .NET 10 SDK; the tests also run on the .NET 8 runtime when it is in
 ```bash
 dotnet build Packvium.slnx
 dotnet test --solution Packvium.slnx -f net10.0
+dotnet test --solution Packvium.slnx -f net8.0    # needs the .NET 8 runtime
 ```
 
 The suite should be green before you change anything, so that any later failure is yours.
@@ -20,7 +21,7 @@ The suite should be green before you change anything, so that any later failure 
 (1/16000 mm) and every weight an integer number of 1/8 µg. A change that makes a placement
 decision depend on binary floating point is wrong even if the tests pass. Ratios are compared
 as scaled integers or exact rationals. See
-[UNITS-AND-NUMERICS.md](https://github.com/packvium/packvium-python/blob/main/docs/UNITS-AND-NUMERICS.md).
+[Packvium's units and numeric contract](https://github.com/packvium/packvium-python/blob/v1.6.0/docs/UNITS-AND-NUMERICS.md).
 
 **No runtime dependencies.** The package installs with nothing else. A new dependency needs a
 very good argument.

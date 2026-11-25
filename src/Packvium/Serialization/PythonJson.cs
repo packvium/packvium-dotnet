@@ -8,8 +8,8 @@ using System.Text;
 namespace Packvium.Serialization;
 
 /// <summary>
-/// <c>json.dumps(value, ensure_ascii=False, ...)</c>: the encoder the reference engine writes its
-/// CLI output with and the conformance harness canonicalizes with.
+/// Python's <c>json.dumps(value, ensure_ascii=False, ...)</c>: the notation every Packvium
+/// command-line program writes its result in.
 /// </summary>
 public static class PythonJson
 {

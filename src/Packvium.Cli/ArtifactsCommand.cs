@@ -9,8 +9,8 @@ using Packvium.Serialization;
 namespace Packvium.Cli;
 
 /// <summary>
-/// <c>packvium artifacts</c>: the batch probe of the tag's <c>conformance/artifacts/run.py</c>.
-/// stdin is a JSON list of cases; stdout is one canonical JSON line per case, in order:
+/// <c>packvium artifacts</c>: a test-only subcommand that builds and exports operational artifacts
+/// in a batch. stdin is a JSON list of cases; stdout is one canonical JSON line per case, in order:
 /// <c>{"csv", "error", "html", "json"}</c>. A refusal is an outcome, not a failure, so the probe
 /// exits 0 unless it cannot run at all.
 /// </summary>

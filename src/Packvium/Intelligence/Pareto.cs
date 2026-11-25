@@ -116,7 +116,7 @@ public sealed record ProfileReport
 }
 
 /// <summary>
-/// A Pareto report over caller-supplied metrics (<c>packvium.pareto</c>). It never folds the axes
+/// A Pareto report over caller-supplied metrics. It never folds the axes
 /// into one weighted number: a result dominates another only when it is no worse on every named
 /// axis and strictly better on at least one, and the report per profile is the set nothing else
 /// dominates, not a ranking.

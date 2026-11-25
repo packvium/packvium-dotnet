@@ -172,23 +172,54 @@ public static class LoadPropagation
         return null;
     }
 
-    /// <summary>A direct-support edge may never originate at a non-stackable item.</summary>
+    /// <summary>
+    /// The first direct-support edge at the candidate its lower item refuses, or null: supporters
+    /// ascending, then children ascending. <c>non_stackable</c> is tested before the stacking-group
+    /// rule on every edge, so a packing invalid before stacking groups existed keeps its code; the
+    /// group test rides this same walk, one set lookup per edge and no pass of its own.
+    /// </summary>
     public static ConstraintResult? NonStackableFailure(IReadOnlyList<Placement> placements, ItemInstance item,
         LoadSupportGraph graph, int candidateIndex)
     {
+        var upperGroup = item.Item.StackingGroup;
         foreach (var edge in graph.Supporters(candidateIndex))
         {
-            var supporter = placements[edge.Index];
-            if (!supporter.Instance.Item.Stackable)
+            var lower = placements[edge.Index].Instance.Item;
+            if (StackingRefusal(lower, upperGroup) is { } code)
             {
-                return ConstraintResult.Reject("non_stackable", supporter.Instance.Item.Id);
+                return ConstraintResult.Reject(code, lower.Id);
             }
         }
-        if (!item.Item.Stackable && !graph.Children(candidateIndex).IsEmpty)
+        var self = item.Item;
+        if (self.Stackable && self.AcceptsStackingGroups.Count == 0)
         {
-            return ConstraintResult.Reject("non_stackable", item.Item.Id);
+            return null;
+        }
+        foreach (var child in graph.Children(candidateIndex))
+        {
+            if (StackingRefusal(self, placements[child].Instance.Item.StackingGroup) is { } code)
+            {
+                return ConstraintResult.Reject(code, self.Id);
+            }
         }
         return null;
+    }
+
+    /// <summary>
+    /// Why <paramref name="lower"/> refuses an item of <paramref name="upperGroup"/> resting directly
+    /// on it, or null. An empty list is unconstrained; a non-empty one is closed, so an item with no
+    /// group is in none of them. O(1).
+    /// </summary>
+    public static string? StackingRefusal(Item lower, string? upperGroup)
+    {
+        if (!lower.Stackable)
+        {
+            return "non_stackable";
+        }
+        return lower.AcceptsStackingGroups.Count > 0
+               && (upperGroup is null || !lower.AcceptsStackingGroups.Contains(upperGroup))
+            ? "stacking_group_incompatible"
+            : null;
     }
 }
 

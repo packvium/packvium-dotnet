@@ -9,8 +9,7 @@ using Packvium.Units;
 namespace Packvium.Serialization;
 
 /// <summary>
-/// The request schema's rules over the raw JSON, before any model is built
-/// (<c>request_errors.check_request</c>): the first violation wins, in the order every engine
+/// The request schema's rules over the raw JSON, before any model is built: the first violation wins, in the order every engine
 /// follows -- units, configuration, items, containers -- and is refused with an
 /// <see cref="InvalidRequestException"/> naming its reason, pointer and fixed detail. Every schema
 /// <c>minimum</c> is a floor and no length or weight is negative. O(size of the request).
@@ -20,7 +19,8 @@ public static class RequestRules
     private static readonly string[] SolverProfileNames = ["fast", "balanced", "quality", "exact_small"];
 
     private static readonly string[] ObjectiveNames =
-        ["default", "lowest_cost", "shipping_cost", "lowest_landed_cost", "open_dimension_height", "maximum_value"];
+        ["default", "lowest_cost", "shipping_cost", "lowest_landed_cost", "open_dimension_height", "maximum_value",
+        "maximum_volume"];
 
     private static readonly string[] AccessDirectionNames = ["+x", "-x", "+y", "-y", "+z", "-z"];
 
@@ -134,6 +134,29 @@ public static class RequestRules
         OptionalInteger(item, "max_compression_pressure_kpa", where, 0);
         OptionalRatio(item, "minimum_support_ratio", where, 1);
         OptionalRatio(item, "compression_ratio", where, null);
+        Optional(item, "stacking_group", where, StackingGroupName);
+        Optional(item, "accepts_stacking_groups", where, StackingGroupNames);
+    }
+
+    private static void StackingGroupName(JsonValue value, string field)
+    {
+        if (value is not JsonString { Value: var name })
+        {
+            throw new InvalidRequestException("wrong_type", field, "must be a string");
+        }
+        if (name.Length == 0)
+        {
+            throw new InvalidRequestException("invalid_value", field, "must not be empty");
+        }
+    }
+
+    private static void StackingGroupNames(JsonValue raw, string where)
+    {
+        var names = RequireList(raw, where);
+        for (var index = 0; index < names.Items.Length; index++)
+        {
+            StackingGroupName(names.Items[index], where + JsonPointer.Of(index));
+        }
     }
 
     private static void CheckContainer(JsonValue raw, string where, string unit)
@@ -154,6 +177,112 @@ public static class RequestRules
         Optional(container, "tag_limits", where, TagLimits);
         Optional(container, "rate_table", where, RateTable);
         Optional(container, "obstacles", where, (value, field) => Obstacles(value, field, unit));
+        Optional(container, "deformable_boundary", where, (value, field) => DeformableBoundary(container, value, field, where));
+        Optional(container, "made_to_measure", where, (value, field) => MadeToMeasureRules(container, value, field, where, unit));
+    }
+
+    /// <summary>Container fields a flat bag refuses, in reporting order.</summary>
+    private static readonly string[] BagExclusions =
+    [
+        "obstacles", "axles", "access_directions", "max_stack_density", "outer_dimensions", "void_fill_reserve_ratio",
+        "made_to_measure",
+    ];
+
+    private static readonly HashSet<string> DeformableBoundaryFields = new(["kind"], StringComparer.Ordinal);
+
+    /// <summary>Every key the request schema's <c>made_to_measure</c> declares; it sets <c>additionalProperties: false</c>.</summary>
+    private static readonly HashSet<string> MadeToMeasureFields = new(
+        ["cost_per_square_metre_minor", "increment", "minimum", "outer_allowance", "tare_per_square_metre"],
+        StringComparer.Ordinal);
+
+    private static void DeformableBoundary(JsonObject container, JsonValue raw, string field, string where)
+    {
+        var boundary = RequireObject(raw, field);
+        OneOf(Required(boundary, "kind", field), field + JsonPointer.Of("kind"), FlatBag.Kinds);
+        KnownFields(boundary, field, DeformableBoundaryFields);
+        foreach (var name in BagExclusions)
+        {
+            if (SetBesideABag(name, container.GetPresent(name)))
+            {
+                throw new InvalidRequestException("not_allowed", where + JsonPointer.Of(name),
+                    "cannot be combined with deformable_boundary");
+            }
+        }
+    }
+
+    /// <summary>An empty obstacle list and a zero reserve change nothing, so only they are let through.</summary>
+    private static bool SetBesideABag(string name, JsonValue? value) => name switch
+    {
+        "obstacles" => value is JsonArray { Items.Length: > 0 },
+        "void_fill_reserve_ratio" => value switch
+        {
+            JsonInteger integer => integer.Value.Sign > 0,
+            JsonFloat number => number.Value > 0,
+            _ => false,
+        },
+        _ => value is not null,
+    };
+
+    /// <summary>
+    /// The made-to-measure rules: shape top to bottom, then each axis, then the price.
+    /// Run after every other container field, so an existing error always wins. O(1).
+    /// </summary>
+    private static void MadeToMeasureRules(JsonObject container, JsonValue raw, string field, string where, string unit)
+    {
+        var machine = RequireObject(raw, field);
+        KnownFields(machine, field, MadeToMeasureFields);
+        Required(machine, "minimum", field);
+        Required(machine, "increment", field);
+        foreach (var name in (ReadOnlySpan<string>)["minimum", "increment", "outer_allowance"])
+        {
+            Optional(machine, name, field, (value, at) => Dimensions(value, at, unit));
+        }
+        OptionalInteger(machine, "cost_per_square_metre_minor", field, 0);
+        OptionalMeasure(machine, "tare_per_square_metre", field, Kind.Weight, "g");
+        if (container.GetPresent("outer_dimensions") is not null)
+        {
+            throw new InvalidRequestException("not_allowed", where + JsonPointer.Of("outer_dimensions"),
+                "cannot be combined with made_to_measure");
+        }
+        var inner = Ticks(container.Require("inner_dimensions"), unit);
+        var minimum = Ticks(machine.Require("minimum"), unit);
+        var increment = Ticks(machine.Require("increment"), unit);
+        for (var axis = 0; axis < 3; axis++)
+        {
+            var side = Sides[axis];
+            if (minimum[axis] == 0)
+            {
+                throw new InvalidRequestException("invalid_value", field + JsonPointer.Of("minimum", side), "must be positive");
+            }
+            if (increment[axis] == 0)
+            {
+                throw new InvalidRequestException("invalid_value", field + JsonPointer.Of("increment", side), "must be positive");
+            }
+            if (minimum[axis] > inner[axis])
+            {
+                throw new InvalidRequestException("invalid_value", field + JsonPointer.Of("minimum", side),
+                    "exceeds inner_dimensions");
+            }
+            if ((inner[axis] - minimum[axis]) % increment[axis] != 0)
+            {
+                throw new InvalidRequestException("invalid_value", field + JsonPointer.Of("increment", side),
+                    "does not divide inner_dimensions minus minimum");
+            }
+        }
+        var price = JsonValues.WholeNumber(machine.GetPresent("cost_per_square_metre_minor")) ?? 0;
+        var fee = JsonValues.WholeNumber(container.GetPresent("cost_minor")) ?? 0;
+        if (Domain.MadeToMeasure.BoxCostMinorFor(price, fee, inner) > CanonicalJsonWriter.MaxExactMagnitude)
+        {
+            throw new InvalidRequestException("invalid_value", field + JsonPointer.Of("cost_per_square_metre_minor"),
+                $"prices the largest box above {CanonicalJsonWriter.MaxExactMagnitude.ToString(CultureInfo.InvariantCulture)}");
+        }
+    }
+
+    private static Triple Ticks(JsonValue raw, string unit)
+    {
+        var sides = (JsonObject)raw;
+        return new Triple(Measures.Length(sides.Require("length"), unit).Ticks,
+            Measures.Length(sides.Require("width"), unit).Ticks, Measures.Length(sides.Require("height"), unit).Ticks);
     }
 
     private static void Dimensions(JsonValue raw, string where, string unit)
@@ -444,7 +573,7 @@ public static class JsonPointer
     }
 }
 
-/// <summary>JSON values judged as every engine can judge them (<c>_canonical_json.json_integer</c> and <c>json_spelling</c>).</summary>
+/// <summary>JSON values judged as every engine can judge them: which numbers are integers, and how a refusal quotes a value.</summary>
 public static class JsonValues
 {
     private static readonly BigInteger MaxExact = CanonicalJsonWriter.MaxExactMagnitude;

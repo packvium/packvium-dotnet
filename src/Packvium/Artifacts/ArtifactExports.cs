@@ -9,7 +9,7 @@ using Packvium.Serialization;
 namespace Packvium.Artifacts;
 
 /// <summary>
-/// JSON, CSV and print-ready work orders from an operational artifact (<c>artifact_exports.py</c>).
+/// JSON, CSV and print-ready work orders from an operational artifact.
 /// Each export is a pure function of the artifact: no solver, carrier, renderer or clock.
 ///
 /// - JSON is the artifact's RFC 8785 canonical form.

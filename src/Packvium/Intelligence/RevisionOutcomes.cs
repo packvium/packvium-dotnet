@@ -8,7 +8,7 @@ using Packvium.Serialization;
 namespace Packvium.Intelligence;
 
 /// <summary>
-/// Approved plan revisions as labeled evidence for historical evaluation (<c>revision_outcomes.py</c>).
+/// Approved plan revisions as labeled evidence for historical evaluation.
 /// A revision records what differed from an approved plan; this appends those records to an
 /// <see cref="OutcomeLedger"/>, where <see cref="Holdout"/> already evaluates recommendations on
 /// untouched history. It adds no second evaluator and no second store.

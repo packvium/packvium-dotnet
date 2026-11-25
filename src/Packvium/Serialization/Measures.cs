@@ -40,7 +40,7 @@ internal static class Measures
             Length(data.Require("height"), unit));
     }
 
-    /// <summary><c>units._fraction</c> over whatever the measure holds.</summary>
+    /// <summary>The exact quantity a measure holds, read as <see cref="QuantityText"/> reads text.</summary>
     private static Rational InnerValue(JsonValue raw) => raw switch
     {
         JsonObject measure => InnerScalar(measure.Require("value")),

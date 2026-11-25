@@ -11,8 +11,7 @@ using Packvium.Serialization;
 namespace Packvium.Artifacts;
 
 /// <summary>
-/// The portable operational artifact (<c>artifacts.py</c>; <c>docs/OPERATIONAL-ARTIFACTS.md</c> is
-/// the contract). An execution plan says what to do first; it does not say how big the boxes
+/// The portable operational artifact (<c>packvium-operational-artifact/v1</c>). An execution plan says what to do first; it does not say how big the boxes
 /// are, what the load weighs or which request and solver produced it. The artifact is the one
 /// document that can be drawn, printed and traced offline, and it adds nothing a solver decided.
 ///
@@ -31,7 +30,7 @@ public static class OperationalArtifact
     /// engine's own name is deliberately not recorded: correct builders naming themselves would
     /// emit different documents.
     /// </summary>
-    public const string SuiteVersion = "1.5.0";
+    public const string SuiteVersion = "1.6.0";
 
     /// <summary>The deterministic part of <c>result.algorithm</c>; <c>duration_ms</c> is wall-clock time and never enters.</summary>
     public static ImmutableArray<string> SolverFields { get; } =
@@ -50,7 +49,7 @@ public static class OperationalArtifact
     /// a value with no canonical spelling: an artifact that exists has one spelling everywhere.
     /// </summary>
     /// <param name="request">The request the result answers, embedded verbatim.</param>
-    /// <param name="result">The result document, as <c>ResultWriter</c> writes it or as a golden stores it.</param>
+    /// <param name="result">The result document, as <c>ResultWriter</c> writes it or as it was stored.</param>
     /// <param name="loadingOrders">A container's index to the engine-computed order its placements are loaded in.</param>
     public static JsonObject Build(JsonValue request, JsonValue result,
         IReadOnlyDictionary<int, IReadOnlyList<int>>? loadingOrders = null)
@@ -228,7 +227,7 @@ public static class OperationalArtifact
             ("dimensions", TickDimensions(Field(placement, "dimensions", $"containers[{index}].placements[]")))))])));
 
     /// <summary>
-    /// Lengths as decimal strings of ticks: the scene contract's spelling, and one no engine has
+    /// Lengths as decimal strings of ticks: the spelling every engine shares, and one no engine has
     /// to hold as a native number.
     /// </summary>
     private static JsonObject TickDimensions(JsonValue dimensions) =>

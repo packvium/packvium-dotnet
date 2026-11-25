@@ -6,9 +6,9 @@ using Packvium.Serialization;
 namespace Packvium.Cli;
 
 /// <summary>
-/// <c>python -m packvium</c>: a request on stdin or from a file, the result on stdout as sorted,
-/// two-space-indented JSON. A refused request exits non-zero with the reason on stderr, which is
-/// the whole contract the conformance runner drives every engine through.
+/// The Packvium command line: a request on stdin or from a file, the result on stdout as sorted,
+/// two-space-indented JSON. A refused request exits non-zero with the reason on stderr, the same
+/// contract every Packvium command-line program keeps.
 /// </summary>
 public static class Program
 {

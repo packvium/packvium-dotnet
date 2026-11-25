@@ -54,9 +54,23 @@ public sealed class PackedContainer(
     public ImmutableArray<Placement> ExpandPlacements() =>
         LatticeSummary is { } summary ? summary.Expand(LatticeItems) : Placements;
 
+    /// <summary>
+    /// The largest envelope x2, y2 and z2 of its placements from its origin: a flat bag's conformed
+    /// package, or a made-to-measure box's extent before it is rounded onto the machine grid. Null
+    /// for any other container. O(p).
+    /// </summary>
+    public Dimensions? AchievedDimensions => Container.IsFlatBag || Container.MadeToMeasure is not null
+        ? FlatBag.ExtentOf(Placements.Select(placement => placement.EnvelopeBox)).AsDimensions()
+        : null;
+
+    /// <summary>What a carrier measures: a bag's achieved package, else the declared outer size.</summary>
+    public Dimensions BilledDimensions => Container.IsFlatBag && AchievedDimensions is { } achieved
+        ? achieved
+        : Container.OuterDimensions ?? Container.InnerDimensions;
+
     /// <summary>This packed container as an item for the next nesting level.</summary>
     public Item AsItem(string? id = null, bool keepUpright = true, Weight? maxTopLoad = null) =>
-        new(id ?? Id, Container.OuterDimensions ?? Container.InnerDimensions, GrossWeight, keepUpright: keepUpright,
+        new(id ?? Id, BilledDimensions, GrossWeight, keepUpright: keepUpright,
             maxTopLoad: maxTopLoad,
             metadata: new Dictionary<string, object?> { ["source_packed_container"] = Id }.ToFrozenDictionary());
 }

@@ -21,8 +21,8 @@ public sealed record RebalanceResult(ImmutableArray<PackedContainer> Containers,
 }
 
 /// <summary>
-/// Redistributes payload weight across an already-solved multi-container packing
-/// (<c>rebalance.py</c>): an explicit, opt-in pass a caller runs after
+/// Redistributes payload weight across an already-solved multi-container packing: an explicit,
+/// opt-in pass a caller runs after
 /// <see cref="Packer.Pack(IEnumerable{Item}, IEnumerable{Container})"/>, never part of a solve.
 ///
 /// Every candidate move is simulated in full and checked by the
@@ -33,7 +33,8 @@ public sealed record RebalanceResult(ImmutableArray<PackedContainer> Containers,
 /// gap between the heaviest and lightest payload. The spread is a strictly decreasing sequence of
 /// non-negative integers, so the pass ends on its own, and <c>maxMoves</c> bounds it again. A
 /// round costs O(p c (F + V)) for p placements in the source, c containers, F one bounded
-/// candidate search and V one validator pass over the whole packing.
+/// candidate search and V one validator pass over the whole packing. A compact lattice is
+/// expanded once before the search, in time and space linear in its number of placements.
 /// </summary>
 public static class WeightRebalance
 {
@@ -61,6 +62,18 @@ public static class WeightRebalance
             {
                 break;
             }
+            if (round == 0)
+            {
+                for (var index = 0; index < working.Count; index++)
+                {
+                    var packed = working[index];
+                    if (packed.LatticeSummary is not null)
+                    {
+                        working[index] = new PackedContainer(packed.Container, packed.Sequence,
+                            packed.ExpandPlacements());
+                    }
+                }
+            }
             var committed = Round(request, working, unpacked, config, deadline);
             if (committed is null)
             {
@@ -69,7 +82,7 @@ public static class WeightRebalance
             moves.Add(committed.Value.Move);
             working = committed.Value.Containers;
         }
-        return new RebalanceResult([.. working], [.. moves]);
+        return new RebalanceResult(moves.Count == 0 ? [.. containers] : [.. working], [.. moves]);
     }
 
     /// <summary>The first move of one round that fits and strictly narrows the spread, or null.</summary>
@@ -173,8 +186,7 @@ public static class WeightRebalance
     /// re-derived from the new stack rather than carried forward stale.
     /// </summary>
     private static PackedContainer With(PackedContainer packed, ImmutableArray<Placement> placements) =>
-        new(packed.Container, packed.Sequence, Loads.WithTopLoads(placements), packed.LatticeSummary,
-            packed.LatticeItems);
+        new(packed.Container, packed.Sequence, Loads.WithTopLoads(placements));
 
     /// <summary>The share of the base resting on the floor or on what is already in the container.</summary>
     private static double SupportRatio(ImmutableArray<Placement> existing, ItemInstance instance, Point origin,

@@ -48,6 +48,7 @@ public static class UnsupportedFields
             found.UnionWith(entries.SelectMany(entry => Fields(scope).Where(field => entry.Get(field) is not null))
                 .Select(field => $"{scope}.{field}"));
         }
+        found.UnionWith(MadeToMeasureCombinations(request));
         if (found.Count == 0)
         {
             return;
@@ -55,6 +56,54 @@ public static class UnsupportedFields
         throw new UnsupportedFeatureException(
             $"unsupported_feature: the .NET engine does not yet implement {string.Join(", ", found)}; "
             + "the request was rejected instead of silently ignoring public fields");
+    }
+
+    /// <summary>
+    /// The made-to-measure combinations 1.6 refuses. Each reads a container dimension or position
+    /// the fabricated box does not keep. Checked on the raw request, before any request error, with
+    /// the same type guards every engine applies. O(containers +
+    /// fixed placements).
+    /// </summary>
+    private static SortedSet<string> MadeToMeasureCombinations(JsonObject request)
+    {
+        var found = new SortedSet<string>(CodePointComparer.Instance);
+        var measured = new HashSet<string>(StringComparer.Ordinal);
+        var entries = request.Get("containers") is JsonArray array ? array.Items.OfType<JsonObject>() : [];
+        foreach (var entry in entries)
+        {
+            if (entry.GetPresent("made_to_measure") is null)
+            {
+                continue;
+            }
+            if (entry.Get("id") is JsonString id)
+            {
+                measured.Add(id.Value);
+            }
+            if (entry.GetPresent("axles") is not null)
+            {
+                found.Add("container.made_to_measure+axles");
+            }
+            if (entry.Get("obstacles") is JsonArray { Items.Length: > 0 })
+            {
+                found.Add("container.made_to_measure+obstacles");
+            }
+            if (entry.Get("void_fill_reserve_ratio") switch
+                {
+                    JsonInteger integer => integer.Value.Sign > 0,
+                    JsonFloat number => number.Value > 0,
+                    _ => false,
+                })
+            {
+                found.Add("container.made_to_measure+void_fill_reserve_ratio");
+            }
+        }
+        if (measured.Count > 0 && request.Get("fixed_placements") is JsonArray fixedPlacements
+            && fixedPlacements.Items.OfType<JsonObject>().Any(entry =>
+                entry.Get("container_type") is JsonString { Value: var type } && measured.Contains(type)))
+        {
+            found.Add("fixed_placements+container.made_to_measure");
+        }
+        return found;
     }
 
     private static ImmutableArray<string> Fields(string scope) => ByScope.First(entry => entry.Scope == scope).Fields;

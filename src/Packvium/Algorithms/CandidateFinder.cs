@@ -83,6 +83,10 @@ public static class CandidateFinder
         }
         var inner = container.InnerDimensions;
         var (limitX, limitY, limitZ) = (inner.Length.Ticks, inner.Width.Ticks, inner.Height.Ticks);
+        // A flat bag also needs a + c <= L and b + c <= W over the running extents grown by the
+        // candidate: O(1), and the extents only grow, so no admitted verdict flips.
+        var bag = container.IsFlatBag;
+        var (bagX, bagY, bagZ) = (state.MaxX, state.MaxY, state.MaxZ);
         var clearance = config.Clearance.Ticks;
         var forms = Forms(item, config, clearance);
         var placed = state.Placements.ToImmutableArray();
@@ -117,6 +121,14 @@ public static class CandidateFinder
                 if (x2 > limitX || y2 > limitY || z2 > limitZ)
                 {
                     continue;
+                }
+                if (bag)
+                {
+                    var thickness = Math.Max(z2, bagZ);
+                    if (Math.Max(x2, bagX) + thickness > limitX || Math.Max(y2, bagY) + thickness > limitY)
+                    {
+                        continue;
+                    }
                 }
                 Placement? tentative = !nesting
                     ? null

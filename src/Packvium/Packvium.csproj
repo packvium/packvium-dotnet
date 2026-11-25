@@ -2,11 +2,11 @@
   <PropertyGroup>
     <RootNamespace>Packvium</RootNamespace>
     <AssemblyName>Packvium</AssemblyName>
-    <Version>1.5.0</Version>
+    <Version>1.6.0</Version>
 
     <PackageId>Packvium</PackageId>
     <Authors>Anton Kara</Authors>
-    <Description>Deterministic 3D cartonization and rectangular bin packing with exact integer geometry. A full C# implementation of the Packvium engine: the same requests and the same results as the Python, PHP, Rust and JavaScript engines, plus the commerce API for quotes, eligibility policy and catalog versions. No runtime dependencies.</Description>
+    <Description>Deterministic 3D cartonization and rectangular bin packing with exact integer geometry. A full C# implementation of Packvium. Python, PHP, Java, .NET and Go return identical results at the same version; Rust and JavaScript return a valid answer at or above the objective floor. Includes the commerce API for quotes, eligibility policy and catalog versions. No runtime dependencies.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://packvium.com</PackageProjectUrl>
     <RepositoryUrl>https://github.com/packvium/packvium-dotnet</RepositoryUrl>

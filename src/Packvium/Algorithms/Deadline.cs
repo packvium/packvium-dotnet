@@ -77,6 +77,14 @@ public sealed class Deadline
         return new Deadline(0, limit, clock, effortBudget, stats);
     }
 
+    /// <summary>
+    /// The <c>SearchNodesExpanded</c> at which the attached budget stops a search counting nodes on
+    /// <paramref name="counted"/>, or null when counting there can never trip it: no budget, no node
+    /// bound, or a budget that reads another <see cref="SearchStats"/>.
+    /// </summary>
+    public long? SearchNodeCeiling(SearchStats counted) =>
+        effortBudget?.MaxSearchNodes is { } nodes && ReferenceEquals(stats, counted) ? nodes : null;
+
     /// <summary>Bind an effort budget to one start's own stats, keeping the same time bound.</summary>
     public Deadline WithEffort(EffortBudget? budget, SearchStats startStats) =>
         new(0, RemainingNs, clock, budget, startStats);

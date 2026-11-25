@@ -41,7 +41,8 @@ public sealed class StopAccessibilityConstraint : IPlacementConstraint
 
     /// <summary>The doors in force for <paramref name="container"/>; empty leaves the rule inert.</summary>
     public ImmutableArray<string> DirectionsFor(Container container) =>
-        container.AccessDirections.IsEmpty ? DefaultDirections : container.AccessDirections;
+        // A flat bag has no walls, so it inherits no doors either.
+        container.IsFlatBag ? [] : container.AccessDirections.IsEmpty ? DefaultDirections : container.AccessDirections;
 
     public ConstraintResult Evaluate(ConstraintContext context)
     {

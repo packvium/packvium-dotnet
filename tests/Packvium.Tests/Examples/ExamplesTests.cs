@@ -57,15 +57,30 @@ public sealed partial class ExamplesTests
             ("  result, so there is nothing left to differ about.",
              "  plan is derived from a result, so there is nothing left to differ about."),
             ("  It does not follow that four engines packing the same *request* agree. Python",
-             "  It does not follow that every engine packing the same *request* agrees. This"),
+             "  It does not follow that every engine packing the same *request* agrees. Python,"),
             ("  and PHP are held to identical placements and do produce this exact form; Rust",
-             "  engine, like Python and PHP, is held to identical placements and produces this"),
+             "  PHP, Java, .NET and Go return identical results at the same version and produce"),
             ("  and JavaScript are held to a valid answer at or above the objective floor, and",
-             "  exact form; the Rust and JavaScript engines are held to a valid answer at or"),
+             "  this exact form; Rust and JavaScript return a valid answer at or above the"),
             ("  `examples/execution.mjs` prints 1280 bytes here rather than 1877 for that",
-             "  above the objective floor, so their plan for this request can be a different"),
+             "  objective floor, so their plan for this request can be a different length."),
             ("  reason. Whose packing is better is a question the plan never answers.",
-             "  length. Whose packing is better is a question the plan never answers."),
+             "  Whose packing is better is a question the plan never answers."),
+            ("  loading order from geometry this adapter never sees, so without one it says",
+             "  loading order from geometry the plan builder never sees, so without one it says"),
+        ],
+        // Engine lists name every Packvium engine.
+        ["extensions"] =
+        [
+            ("Neither rule above exists on the wire. Hand the same request to the Rust or",
+             "Neither rule above exists on the wire. Hand the same request to any other Packvium"),
+            ("JavaScript engine and you get the unrestricted answer -- which is exactly why a",
+             "engine and you get the unrestricted answer -- which is exactly why a"),
+        ],
+        ["artifacts"] =
+        [
+            ("  The canonical form is RFC 8785, so PHP, Rust and JavaScript build these exact",
+             "  The canonical form is RFC 8785, so every Packvium engine builds these exact"),
         ],
         ["intelligence"] =
         [

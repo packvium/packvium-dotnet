@@ -9,8 +9,8 @@ namespace Packvium.Domain;
 public sealed class DegenerateHullException(string message) : ArgumentException(message);
 
 /// <summary>
-/// Exact separating-axis geometry for <c>convex_hull</c> items, fixed by
-/// <c>docs/IRREGULAR-ITEMS.md</c> and ported from the reference engine's <c>hull</c> module.
+/// Exact separating-axis geometry for <c>convex_hull</c> items, the same integer arithmetic in
+/// every Packvium engine.
 /// </summary>
 /// <remarks>
 /// Building a shape is O(v^4): O(v^3) vertex triples, each checked against O(v) vertices. It is

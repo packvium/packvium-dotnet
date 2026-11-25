@@ -4,6 +4,52 @@ What changed in `Packvium` on NuGet, release by release. The format follows
 [Keep a Changelog](https://keepachangelog.com/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0]
+
+Matches Packvium 1.6.0: all 435 packing requests with a recorded answer and all 11 requests
+that must be refused in the 1.6.0 conformance corpus, byte for byte in canonical form, all 55
+commerce cases, the execution plan of every one of those results, the six operator-lock cases,
+all 456 operational-artifact cases, all 177 malformed-request cases, all 102 plan-revision
+cases, and the 3 cases that pin the unsupported-placements warning and the 9 that pin an
+unpacked reason. A request that uses none of the new fields keeps its
+meaning; `fast` and `balanced` may now answer better (see *Changed*).
+
+### Added
+
+- **Made-to-measure containers.** `Container.MadeToMeasure` turns a container into an on-demand
+  box machine: `InnerDimensions` is the largest box it cuts, `MadeToMeasure` its smallest size,
+  cut step, board prices and outer allowance. The packed container is the fabricated box, with
+  `AchievedDimensions`, and the result reports `achieved_dimensions` and
+  `made_to_measure.{cost_minor, tare_weight}`. A JSON request that gives such a container
+  axles, obstacles or a void-fill reserve, or a fixed placement, is refused with
+  `UnsupportedFeatureException`.
+- **Flat bags.** `deformableBoundary: FlatBag.Kind` admits a packing only when length plus
+  thickness and width plus thickness of the load fit the bag; the bag is billed on its
+  `AchievedDimensions`.
+- **Stacking groups.** `Item.StackingGroup` and `Item.AcceptsStackingGroups` say which items
+  may rest directly on which; the refusal is `stacking_group_incompatible`.
+- **The `maximum_volume` objective** (`MaximumVolumeSolutionScorer`): the share of the requested
+  volume left behind ranks ahead of the number of pieces, in the beam, block, exact and plan
+  searches too.
+- **A warning for items that rest on nothing.** With the default `minimum_support_ratio` of 0,
+  a result whose placements stand above the floor with nothing under them ends its `Warnings`
+  with `unsupported_placements: N placement(s) rest on nothing above the container floor; set
+  configuration.minimum_support_ratio above 0 to require support`. No answer changes.
+
+### Changed
+
+- **`fast` and `balanced` try the block solver as one more start** on multi-type loads, capped
+  at 100,000 lattice nodes, and keep its answer only when it is strictly better than every
+  start of their own. Answers can therefore change, never for the worse.
+- **An unpacked item names the limit that left it out.** An item a fresh container would take,
+  but none is left, reports `container_inventory_exhausted`; one that overloads an axle
+  wherever it stands alone reports `axle_overloaded`. Both are `inferred`. Code that matched
+  the old `no_feasible_placement` for these cases must match the new reason.
+- **`quality` searches wider after a late-type neighbourhood wins.** The beam refinement of that
+  ordering runs at the wider width again, with at most 4 candidates per item and 4 beam states,
+  instead of repeating the greedy order. Its beam and container plan also count a `convex_hull`
+  item by its own solid, not its box. A `quality` answer can therefore differ from 1.5.0.
+
 ## [1.5.0]
 
 Matches Packvium 1.5.0: all 402 packing fixtures of the 1.5.0 conformance corpus, byte for

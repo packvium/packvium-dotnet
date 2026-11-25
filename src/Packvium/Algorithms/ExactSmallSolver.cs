@@ -96,12 +96,22 @@ public sealed class ExactSmallSolver(IReadOnlyList<IPlacementConstraint>? constr
             }
             var potentialCount = stateCount + reachable;
             var bestCount = Best.Placements.Count;
-            if (potentialCount < bestCount)
+            if (config.RanksByVolume)
+            {
+                // Fewer pieces can still be more volume, so only the volume bound cuts; an equal
+                // bound wins only on a strictly larger count.
+                var reachableVolume = stateVolume + suffixVolumes[index];
+                if (reachableVolume < bestVolume || (reachableVolume == bestVolume && potentialCount <= bestCount))
+                {
+                    return;
+                }
+            }
+            else if (potentialCount < bestCount)
             {
                 return;
             }
-            if (config.Objective != "lowest_landed_cost" && potentialCount == bestCount
-                && stateVolume + suffixVolumes[index] <= bestVolume)
+            else if (config.Objective != "lowest_landed_cost" && potentialCount == bestCount
+                     && stateVolume + suffixVolumes[index] <= bestVolume)
             {
                 return;
             }
@@ -121,16 +131,21 @@ public sealed class ExactSmallSolver(IReadOnlyList<IPlacementConstraint>? constr
         /// <summary>
         /// The incumbent order: count then placed volume, except that landed cost precedes
         /// volume when it is the objective, since a promotional bracket can make a heavier
-        /// equal-count subset cheaper.
+        /// equal-count subset cheaper. <c>maximum_volume</c> fills volume before it counts pieces,
+        /// so there the two swap.
         /// </summary>
         private SortKey Rank(ContainerState state, Int128 stateVolume)
         {
             var count = state.Placements.Count;
+            if (config.RanksByVolume)
+            {
+                return SortKey.Of(-stateVolume, -count);
+            }
             if (config.Objective != "lowest_landed_cost")
             {
                 return SortKey.Of(-count, -stateVolume);
             }
-            var billed = Billing.BilledTicks(container, container.TareWeight.Ticks + state.PayloadTicks, config);
+            var billed = Math.Max(container.TareWeight.Ticks + state.PayloadTicks, state.BilledDimensionalTicks(config));
             var charge = container.RateTable?.ChargeMinorOrNull(Billing.Grams(billed));
             return SortKey.Of(-count, charge ?? Billing.UnpriceableMinor, -stateVolume);
         }

@@ -52,6 +52,15 @@ public static class SemanticResult
             fields.Add(Field(container, "axle_reactions"));
         }
         fields.Add(Field(container, "void_fill_reserve_ticks3"));
+        // Present only for a container that conforms to its contents, and the fabricated box's
+        // price and tare only when cut to measure, as the tag's canonical.py projects them.
+        foreach (var name in (string[])["achieved_dimensions", "made_to_measure"])
+        {
+            if (container.Contains(name))
+            {
+                fields.Add(Field(container, name));
+            }
+        }
         fields.Add(new("placements", new JsonArray([.. placements])));
         return new JsonObject(fields);
     }
