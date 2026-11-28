@@ -176,36 +176,34 @@ public sealed class Item
     {
         if (Id.Length == 0)
         {
-            throw new ArgumentException("item id is required");
+            throw new ObjectRefusal("invalid_value", "item id is required");
         }
         if (Quantity <= 0)
         {
-            throw new ArgumentException("item quantity must be positive");
+            throw new ObjectRefusal("below_minimum", "item quantity must be positive");
         }
-        if (!(MinimumSupportRatio >= 0 && MinimumSupportRatio <= 1))
-        {
-            throw new ArgumentException("minimum_support_ratio must be between 0 and 1");
-        }
+        RatioBetweenZeroAndOne(MinimumSupportRatio, "minimum_support_ratio");
         if (MaxStackedItems is < 1)
         {
-            throw new ArgumentException("max_stacked_items must be at least 1");
+            throw new ObjectRefusal("below_minimum", "max_stacked_items must be at least 1");
         }
         if (StopIndex is < 0 or > MaxExactStopIndex)
         {
-            throw new ArgumentException("stop_index must be a non-negative safe integer");
+            throw new ObjectRefusal(StopIndex < 0 ? "below_minimum" : "above_maximum",
+                "stop_index must be a non-negative safe integer");
         }
         if (Value is < 0)
         {
-            throw new ArgumentException("value must be non-negative");
+            throw new ObjectRefusal("below_minimum", "value must be non-negative");
         }
         if (NestingHeight is { } nesting && nesting.Ticks >= Dimensions.Height.Ticks)
         {
-            throw new ArgumentException(
+            throw new ObjectRefusal("invalid_value",
                 "nesting_height must be at least zero and strictly less than the item's own height");
         }
         if (GroundContactRule is not null && !GroundContactRules.Contains(GroundContactRule))
         {
-            throw new ArgumentException(
+            throw new ObjectRefusal("not_allowed",
                 "ground_contact_rule must be one of ['covered', 'free', 'multiple', 'single']");
         }
     }
@@ -213,16 +211,22 @@ public sealed class Item
     /// <summary>Admit the item's shape, or refuse it with the reason; returns the canonical hull.</summary>
     private ImmutableArray<Vertex>? ValidateShape(ImmutableArray<Vertex>? hullVertices)
     {
+        // The value's own floor first, as the JSON rules check it before the shape.
+        if (MaxCompressionPressureKpa is < 0)
+        {
+            throw new ObjectRefusal("below_minimum", "max_compression_pressure_kpa cannot be negative");
+        }
         foreach (var (name, present) in FieldsForeignToShape(hullVertices is not null))
         {
             if (present)
             {
-                throw new ArgumentException($"{name} is not part of a {ShapeType.Value()} item");
+                throw new ObjectRefusal("invalid_value", $"{name} is not part of a {ShapeType.Value()} item");
             }
         }
         if (NestingHeight is not null && ShapeType != ShapeType.RigidCuboid)
         {
-            throw new ArgumentException($"nesting_height with shape_type {ShapeType.Value()} is not supported yet");
+            throw new ObjectRefusal("invalid_value",
+                $"nesting_height with shape_type {ShapeType.Value()} is not supported yet");
         }
         if (ShapeType == ShapeType.ConvexHull)
         {
@@ -255,7 +259,7 @@ public sealed class Item
     {
         if (hullVertices is not { } authored)
         {
-            throw new ArgumentException("a convex_hull item requires hull_vertices");
+            throw new ObjectRefusal("invalid_value", "a convex_hull item requires hull_vertices");
         }
         var points = Hull.Validate(authored);
         var (lower, upper) = Hull.BoundingExtent(points);
@@ -263,7 +267,7 @@ public sealed class Item
         var declared = (Dimensions.Length.Ticks, Dimensions.Width.Ticks, Dimensions.Height.Ticks);
         if (extent.Item1 > declared.Item1 || extent.Item2 > declared.Item2 || extent.Item3 > declared.Item3)
         {
-            throw new ArgumentException(
+            throw new ObjectRefusal("invalid_value",
                 $"hull_vertices span {extent} does not fit inside dimensions {declared}");
         }
         return points;
@@ -271,25 +275,35 @@ public sealed class Item
 
     private void ValidateCompression()
     {
-        if (CompressionRatioPpm is not { } ratio || MaxCompressionPressureKpa is not { } pressure)
+        if (CompressionRatioPpm is not { } ratio || MaxCompressionPressureKpa is null)
         {
-            throw new ArgumentException(
+            throw new ObjectRefusal("invalid_value",
                 "a compressible item requires both compression_ratio and max_compression_pressure_kpa");
         }
         if (ratio is < 0 or > Compression.Ppm)
         {
-            throw new ArgumentException("compression_ratio must be between zero and one");
-        }
-        if (pressure < 0)
-        {
-            throw new ArgumentException("max_compression_pressure_kpa cannot be negative");
+            throw new ObjectRefusal("invalid_value", "compression_ratio must be between zero and one");
         }
     }
 
     private ImmutableArray<Rotation> AdmittedRotations(IEnumerable<Rotation> allowed)
     {
         var rotations = allowed.Where(rotation => !KeepUpright || Rotations.Upright.Contains(rotation)).ToImmutableArray();
-        return rotations.IsEmpty ? throw new ArgumentException("at least one rotation must be allowed") : rotations;
+        return rotations.IsEmpty ? throw new ObjectRefusal("invalid_value", "at least one rotation must be allowed") : rotations;
+    }
+
+    /// <summary>
+    /// The ratio rule of the request schema: below zero and above one are told apart, and anything
+    /// else outside [0, 1] (NaN) is still refused.
+    /// </summary>
+    internal static void RatioBetweenZeroAndOne(double value, string name)
+    {
+        if (value >= 0 && value <= 1)
+        {
+            return;
+        }
+        var reason = value < 0 ? "below_minimum" : value > 1 ? "above_maximum" : "invalid_value";
+        throw new ObjectRefusal(reason, $"{name} must be between 0 and 1");
     }
 
     private static FrozenSet<string> ToSet(IEnumerable<string>? values) =>

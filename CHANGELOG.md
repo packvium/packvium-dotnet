@@ -4,6 +4,66 @@ What changed in `Packvium` on NuGet, release by release. The format follows
 [Keep a Changelog](https://keepachangelog.com/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0]
+
+Matches Packvium 1.7.0: all 451 packing requests with a recorded answer and all 12 requests
+that must be refused in the 1.7.0 conformance corpus, byte for byte in canonical form, all 55
+commerce cases, the execution plan of every one of those results, the six operator-lock cases,
+all 472 operational-artifact cases, all 207 malformed-request cases, all 102 plan-revision
+cases, the 3 cases that pin the unsupported-placements warning, the 12 that pin an unpacked
+reason, and all 5451 pairs of the result-validation suite. A valid request keeps its meaning;
+`quality` may now answer better (see *Changed*).
+
+### Added
+
+- **`ResultValidation.Validate(request, result)`**, the reference validator, in
+  `Packvium.Validation`. It judges a result of any Packvium engine from the request and result
+  JSON alone and returns the same `ResultIssue` list, code and detail, as every other engine's
+  validator. A result that is not the contract's shape throws `MalformedResultException`, whose
+  `Kind` is `contract` or `shape`.
+
+### Changed
+
+- **`quality` looks ahead in the block solver.** Each round completes its four leading blocks
+  on a copy and keeps the one whose completion ranks best, within 64 times
+  `container_plan_node_limit` lattice nodes. The answer is never worse than before, and can be
+  better. Under a tight effort budget it can now report `truncated` where 1.6.0 did not.
+- **Every closed vocabulary of the request schema is refused by name.** An unknown rotation,
+  `shape_type`, `ground_contact_rule`, solver, output unit, dimensional-weight unit or
+  fixed-placement `orientation` is `invalid_request` / `not_allowed` at its pointer. `ticks` is
+  no longer accepted as an output unit, and output and dimensional-weight units must be the
+  lower-case codes.
+- **`nesting_height` must be below the item's height**, refused as `invalid_value` at its
+  pointer.
+- **A result without an `output` block is written in the request's own length unit, spelt as
+  its code**: `"Inches"` writes `in`, `tick` writes `mm`.
+- **When a request breaks several rules, the first is named in a fixed order**: unsupported
+  fields, units, output, configuration, each item, item ids, each container, container ids,
+  fixed placements.
+- **A request built from objects is refused as the JSON request is.** Constructors throw
+  `ObjectRefusal`, an `InvalidRequestException` carrying the schema's reason and no field,
+  instead of a bare `ArgumentException`; `Packer.Pack` refuses what the JSON rules refuse with
+  the same reason, pointer and message. A `FixedPlacement` counting its container from 0 is no
+  longer refused by its constructor but by `Pack`, as `invalid_fixed_placement`. A measure
+  refused while it is read throws `UnitRefusal`, which carries the reason too.
+- **The orientation refusal names the codes**: `orientation must be one of
+  ["LWH","LHW","WLH","WHL","HLW","HWL"]`, in fixed placements and in plan revisions.
+
+### Fixed
+
+- **A `covered` item counts only boxes it really rests on.** A neighbour that touches a corner
+  along an edge no longer counts as covering it.
+- **The unloading-order violation names the lowest-index blocker**, the same one every engine
+  names.
+- **A tall stack no longer walks one call frame per level** when its stacking and route rules
+  are checked.
+- **An axle-balanced candidate point already offered is not scanned again**, which changed only
+  the counted effort.
+- **A non-integral number inside a `{"value": ...}` measure is refused** as `wrong_type`, as
+  every other engine refuses it; it was read as a decimal before.
+- **Python-style quoting in messages follows Unicode 14** on every .NET runtime, so a message
+  that quotes an unusual character reads the same on .NET 8 and .NET 10.
+
 ## [1.6.0]
 
 Matches Packvium 1.6.0: all 435 packing requests with a recorded answer and all 11 requests

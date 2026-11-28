@@ -38,6 +38,11 @@ The realistic risks are therefore about untrusted **input**:
   maximum before passing them in.
 - **Malformed input.** Bad units, unparseable numbers and contradictory constraints throw an
   exception rather than producing a wrong packing. Do not suppress those exceptions.
+- **Results you did not compute.** `ResultValidation.Validate` is meant for results from
+  any source, so it reads them as untrusted: a document that is not the contract's shape is
+  refused with `MalformedResultException`, and its arithmetic is exact at any size. Its cost
+  grows with the number of placements per container (pairwise overlap checks), so bound the
+  size of documents you accept from untrusted callers.
 
 A result that reports success has passed independent validation, but validation checks the
 constraints you declared. It cannot know about a constraint you did not express.

@@ -5,6 +5,7 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using Packvium.Artifacts;
+using Packvium.Domain;
 using Packvium.Serialization;
 using Packvium.Units;
 
@@ -332,7 +333,7 @@ public static class PlanRevision
         if (placement.Get("orientation") is not JsonString { Value: var orientation }
             || !FixedPlacementShapes.Orientations.Contains(orientation))
         {
-            throw new PlanRevisionException("invalid_event", "placement.orientation is one of the six codes");
+            throw new PlanRevisionException("invalid_event", $"placement.orientation {Rotations.VocabularyRule}");
         }
         if (JsonValues.WholeNumber(placement.Get("container_instance") ?? new JsonInteger(1)) is not >= 1)
         {

@@ -26,10 +26,10 @@ public sealed class FlatBagTests
     [Fact]
     public void ABagRefusesEveryWallAnchoredField()
     {
-        Assert.Contains("unknown deformable_boundary kind 'gusseted'", Assert.Throws<System.ArgumentException>(() =>
+        Assert.Contains("unknown deformable_boundary kind 'gusseted'", Assert.Throws<ObjectRefusal>(() =>
             new Container("mailer", Dimensions.Mm("240", "140", "100"), deformableBoundary: "gusseted")).Message);
         Assert.Contains("access_directions cannot be combined with deformable_boundary",
-            Assert.Throws<System.ArgumentException>(() => new Container("mailer", Dimensions.Mm("240", "140", "100"),
+            Assert.Throws<ObjectRefusal>(() => new Container("mailer", Dimensions.Mm("240", "140", "100"),
                 accessDirections: ["-x"], deformableBoundary: FlatBag.Kind)).Message);
     }
 

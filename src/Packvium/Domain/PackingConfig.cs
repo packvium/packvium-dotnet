@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Linq;
 using Packvium.Units;
 
 namespace Packvium.Domain;
@@ -66,7 +67,7 @@ public sealed record EffortBudget
     {
         if (limit is < 1)
         {
-            throw new ArgumentException($"effort_budget.{name} must be at least 1");
+            throw new ObjectRefusal("below_minimum", $"effort_budget.{name} must be at least 1");
         }
     }
 }
@@ -214,23 +215,32 @@ public sealed record PackingConfig
         if (TimeLimitMs <= 0 || TopK <= 0 || ExactItemLimit <= 0 || MultiStartOrders <= 0 || MaxCandidatesPerItem <= 0
             || ParallelStarts <= 0 || ContainerPlanBeamWidth <= 0 || ContainerPlanNodeLimit <= 0)
         {
-            throw new ArgumentException("positive configuration values required");
+            throw new ObjectRefusal("below_minimum", "positive configuration values required");
         }
         if (MaxContainers is < 1)
         {
-            throw new ArgumentException("max_containers must be at least 1");
+            throw new ObjectRefusal("below_minimum", "max_containers must be at least 1");
         }
         if (MaxCandidatePoints < 16)
         {
-            throw new ArgumentException("max_candidate_points must be at least 16");
+            throw new ObjectRefusal("below_minimum", "max_candidate_points must be at least 16");
         }
-        if (!(MinimumSupportRatio >= 0 && MinimumSupportRatio <= 1))
-        {
-            throw new ArgumentException("minimum_support_ratio must be between 0 and 1");
-        }
+        Item.RatioBetweenZeroAndOne(MinimumSupportRatio, "minimum_support_ratio");
         if (DimensionalWeightDivisor is <= 0)
         {
-            throw new ArgumentException("dimensional_weight_divisor must be positive");
+            throw new ObjectRefusal("below_minimum", "dimensional_weight_divisor must be positive");
+        }
+        foreach (var (name, value, allowed) in (ReadOnlySpan<(string, string, ImmutableArray<string>)>)
+                 [
+                     ("dimensional_weight_length_unit", DimensionalWeightLengthUnit, Units.Length.Codes),
+                     ("dimensional_weight_weight_unit", DimensionalWeightWeightUnit, Units.Weight.Codes),
+                 ])
+        {
+            if (!allowed.Contains(value, StringComparer.Ordinal))
+            {
+                throw new ObjectRefusal("not_allowed",
+                    $"{name} must be one of {Units.PythonText.ReprList(allowed)}");
+            }
         }
     }
 }

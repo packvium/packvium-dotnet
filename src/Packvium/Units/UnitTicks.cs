@@ -16,7 +16,7 @@ internal static class UnitTicks
         var ticks = value.Multiply(multiplier).Round(rounding);
         if (ticks.Sign < 0)
         {
-            throw new ArgumentException($"{quantity} cannot be negative");
+            throw new UnitRefusal("negative_measure", $"{quantity} cannot be negative");
         }
         if (ticks > long.MaxValue)
         {

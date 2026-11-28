@@ -1,5 +1,3 @@
-using System;
-
 namespace Packvium.Domain;
 
 /// <summary>
@@ -10,12 +8,12 @@ namespace Packvium.Domain;
 /// </summary>
 public sealed record FixedPlacement
 {
+    /// <summary>
+    /// Every rule on these fields is checked where the placement sits in a request, by
+    /// <see cref="Packing.Packer"/>, with the JSON path's refusal and pointer.
+    /// </summary>
     public FixedPlacement(string itemId, string containerId, Point position, Rotation rotation, long containerInstance = 1)
     {
-        if (containerInstance < 1)
-        {
-            throw new ArgumentException("container_instance counts from 1");
-        }
         ItemId = itemId;
         ContainerId = containerId;
         Position = position;

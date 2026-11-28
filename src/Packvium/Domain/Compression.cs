@@ -128,7 +128,10 @@ public static class Compression
     {
         if (!(ratio >= 0.0 && ratio <= 1.0))
         {
-            throw new ArgumentException("compression_ratio must be between zero and one");
+            // Below zero is the schema's floor; the schema sets no ceiling, so above one stays the
+            // catch-all every engine answers.
+            throw new ObjectRefusal(ratio < 0 ? "below_minimum" : "invalid_value",
+                "compression_ratio must be between zero and one");
         }
         return (long)(ratio * Ppm + 0.5);
     }

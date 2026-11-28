@@ -51,3 +51,13 @@ public sealed class FixedPlacementException(string detail, string reason = "cann
 {
     public override string Code => "invalid_fixed_placement";
 }
+
+/// <summary>
+/// A model refused a value while being built on its own, before it is part of a request, so there
+/// is no field to name: <see cref="InvalidRequestException.Field"/> is empty and the message is the
+/// detail alone, the text the model has always refused with. <see cref="Packing.Packer"/> names the
+/// field for what it checks itself; the JSON path reports a refusal its rules did not name as
+/// <c>invalid_value</c> with this detail, the form every engine shares.
+/// </summary>
+public sealed class ObjectRefusal(string reason, string detail)
+    : InvalidRequestException(reason, string.Empty, detail, detail);

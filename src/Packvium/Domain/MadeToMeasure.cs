@@ -51,19 +51,19 @@ public sealed record MadeToMeasure
     {
         if (Math.Min(minimum.Length, Math.Min(minimum.Width, minimum.Height)) <= 0)
         {
-            throw new ArgumentException("made_to_measure minimum must be positive");
+            throw new ObjectRefusal("invalid_value", "made_to_measure minimum must be positive");
         }
         if (Math.Min(increment.Length, Math.Min(increment.Width, increment.Height)) <= 0)
         {
-            throw new ArgumentException("made_to_measure increment must be positive");
+            throw new ObjectRefusal("invalid_value", "made_to_measure increment must be positive");
         }
         if (costPerSquareMetreMinor < 0 || tarePerSquareMetre < 0)
         {
-            throw new ArgumentException("made_to_measure prices cannot be negative");
+            throw new ObjectRefusal("below_minimum", "made_to_measure prices cannot be negative");
         }
         if (Math.Min(outerAllowance.Length, Math.Min(outerAllowance.Width, outerAllowance.Height)) < 0)
         {
-            throw new ArgumentException("made_to_measure outer_allowance cannot be negative");
+            throw new ObjectRefusal("negative_measure", "made_to_measure outer_allowance cannot be negative");
         }
         Minimum = minimum;
         Increment = increment;
@@ -93,11 +93,11 @@ public sealed record MadeToMeasure
         {
             if (Minimum[axis] > maximum[axis])
             {
-                throw new ArgumentException($"made_to_measure minimum {names[axis]} exceeds inner_dimensions");
+                throw new ObjectRefusal("invalid_value", $"made_to_measure minimum {names[axis]} exceeds inner_dimensions");
             }
             if ((maximum[axis] - Minimum[axis]) % Increment[axis] != 0)
             {
-                throw new ArgumentException(
+                throw new ObjectRefusal("invalid_value",
                     $"made_to_measure increment {names[axis]} does not divide inner_dimensions minus minimum");
             }
         }
@@ -115,7 +115,7 @@ public sealed record MadeToMeasure
         if (outer > long.MaxValue || BoxCostMinor(feeMinor, maximum) > long.MaxValue
             || BoxTareTicks(declaredTare, maximum) > long.MaxValue)
         {
-            throw new ArgumentException("made_to_measure prices, weighs or sizes the largest box past 64 bits");
+            throw new ObjectRefusal("invalid_value", "made_to_measure prices, weighs or sizes the largest box past 64 bits");
         }
     }
 

@@ -30,7 +30,7 @@ public static class OperationalArtifact
     /// engine's own name is deliberately not recorded: correct builders naming themselves would
     /// emit different documents.
     /// </summary>
-    public const string SuiteVersion = "1.6.0";
+    public const string SuiteVersion = "1.7.0";
 
     /// <summary>The deterministic part of <c>result.algorithm</c>; <c>duration_ms</c> is wall-clock time and never enters.</summary>
     public static ImmutableArray<string> SolverFields { get; } =

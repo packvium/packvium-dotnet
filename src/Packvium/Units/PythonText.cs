@@ -25,7 +25,8 @@ internal static class PythonText
         _ => false,
     };
 
-    public static bool IsSpace(char value) => IsSpace(new Rune(value));
+    /// <summary><c>str.isspace</c> for one UTF-16 unit; a surrogate, paired or not, is never whitespace.</summary>
+    public static bool IsSpace(char value) => !char.IsSurrogate(value) && IsSpace(new Rune(value));
 
     /// <summary><c>str.strip()</c> with no argument.</summary>
     public static string Strip(string text)
@@ -100,14 +101,20 @@ internal static class PythonText
     /// <c>repr(str)</c>: single quotes unless the text holds a single quote and no double one,
     /// with backslash, the chosen quote, the three named controls and every non-printable code
     /// point escaped. Rule messages quote tags this way, and a message is part of a result.
+    /// The text is read code point by code point as Python stores it: a surrogate pair is one
+    /// code point, and a lone surrogate is its own, escaped as <c>\udXXX</c>. O(length).
     /// </summary>
     public static string Repr(string text)
     {
         var quote = text.Contains('\'', StringComparison.Ordinal) && !text.Contains('"', StringComparison.Ordinal) ? '"' : '\'';
-        var builder = new StringBuilder().Append(quote);
-        foreach (var rune in text.EnumerateRunes())
+        var builder = new StringBuilder(text.Length + 2).Append(quote);
+        for (var index = 0; index < text.Length; index++)
         {
-            var value = rune.Value;
+            var value = CodePointAt(text, index);
+            if (value > 0xFFFF)
+            {
+                index++;
+            }
             if (value == quote || value == '\\')
             {
                 builder.Append('\\').Append((char)value);
@@ -116,7 +123,7 @@ internal static class PythonText
             {
                 builder.Append(value switch { '\t' => "\\t", '\n' => "\\n", _ => "\\r" });
             }
-            else if (value < 0x20 || value == 0x7F || (value >= 0x80 && !IsPrintable(rune)))
+            else if (value < 0x20 || !IsPrintable(value))
             {
                 builder.Append(value switch
                 {
@@ -127,24 +134,31 @@ internal static class PythonText
             }
             else
             {
-                builder.Append(rune.ToString());
+                builder.Append(char.ConvertFromUtf32(value));
             }
         }
         return builder.Append(quote).ToString();
     }
 
+    /// <summary>The code point at <paramref name="index"/>: a surrogate pair joined, a lone surrogate as itself.</summary>
+    private static int CodePointAt(string text, int index)
+    {
+        var unit = text[index];
+        if (char.IsHighSurrogate(unit) && index + 1 < text.Length && char.IsLowSurrogate(text[index + 1]))
+        {
+            return char.ConvertToUtf32(unit, text[index + 1]);
+        }
+        return unit;
+    }
+
     /// <summary><c>repr(list[str])</c>: how a reference message prints a sorted list of names.</summary>
     public static string ReprList(IEnumerable<string> texts) => $"[{string.Join(", ", texts.Select(Repr))}]";
 
-    /// <summary><c>str.isprintable</c> for one code point: not a control, format, surrogate, private, unassigned or separator other than space.</summary>
-    private static bool IsPrintable(Rune rune) => Rune.GetUnicodeCategory(rune) switch
-    {
-        UnicodeCategory.Control or UnicodeCategory.Format or UnicodeCategory.Surrogate
-            or UnicodeCategory.PrivateUse or UnicodeCategory.OtherNotAssigned or UnicodeCategory.LineSeparator
-            or UnicodeCategory.ParagraphSeparator => false,
-        UnicodeCategory.SpaceSeparator => rune.Value == ' ',
-        _ => true,
-    };
+    /// <summary>
+    /// <c>str.isprintable</c> for one code point, by the fixed Unicode 14.0.0 table rather than the
+    /// runtime's own classification, which changes between .NET releases. O(log r).
+    /// </summary>
+    private static bool IsPrintable(int codePoint) => codePoint < 0x7F ? codePoint >= 0x20 : !NonPrintable.Contains(codePoint);
 
     private static bool CharMatchesIgnoreCase(char candidate, char lowerAscii)
     {

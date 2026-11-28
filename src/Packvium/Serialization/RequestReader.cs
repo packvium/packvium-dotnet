@@ -46,6 +46,12 @@ public static class RequestReader
         {
             return Build(data);
         }
+        catch (ObjectRefusal refusal)
+        {
+            // A model's own refusal names a reason for the object API; the rule table did not
+            // name this value, and every engine reports that as invalid_value with no field.
+            throw new InvalidRequestException("invalid_value", string.Empty, refusal.Detail);
+        }
         catch (Exception error) when (IsUnnamedRefusal(error))
         {
             throw new InvalidRequestException("invalid_value", string.Empty, error.Message);
@@ -77,8 +83,8 @@ public static class RequestReader
         var fixedPlacements = FixedPlacementShapes.Read(data.Get("fixed_placements"), unit);
         var output = PythonCoercion.Object(data.Get("output") ?? Empty);
         return new PackingCall(configuration, policy.Constraints(), items, containers, fixedPlacements, references,
-            output.Get("length_unit") is { } lengthUnit ? PythonCoercion.Str(lengthUnit) : unit,
-            output.Get("weight_unit") is { } weightUnit ? PythonCoercion.Str(weightUnit) : "g");
+            output.GetPresent("length_unit") is { } lengthUnit ? PythonCoercion.Str(lengthUnit) : Units.Length.OutputCode(unit),
+            output.GetPresent("weight_unit") is { } weightUnit ? PythonCoercion.Str(weightUnit) : "g");
     }
 
     /// <summary>
@@ -86,7 +92,7 @@ public static class RequestReader
     /// absent: the model builders take their defaults from a missing key. Only the request's own
     /// records are cleaned -- <c>metadata</c> and the like are echoed back and keep their nulls.
     /// </summary>
-    private static JsonObject WithoutNullOptionals(JsonObject data)
+    internal static JsonObject WithoutNullOptionals(JsonObject data)
     {
         var request = WithoutNulls(data);
         if (request.Get("configuration") is JsonObject configuration)
@@ -128,7 +134,7 @@ public static class RequestReader
             ? new JsonObject(record.Members.Where(member => member.Value is not JsonNull))
             : record;
 
-    private static PackingConfig ReadConfiguration(JsonObject cfg, string unit)
+    internal static PackingConfig ReadConfiguration(JsonObject cfg, string unit)
     {
         var profile = SolverProfiles.Parse(StrictString(cfg.Get("solver_profile") ?? new JsonString("balanced")));
         var quality = profile == SolverProfile.Quality;
@@ -226,7 +232,7 @@ public static class RequestReader
             Measures.Dimensions(raw.Require("dimensions"), unit));
     }
 
-    private static Container ReadContainer(JsonObject raw, string unit)
+    internal static Container ReadContainer(JsonObject raw, string unit)
     {
         var obstacles = PythonCoercion.Iterate(raw.Get("obstacles") ?? new JsonArray([])).Select(value =>
         {

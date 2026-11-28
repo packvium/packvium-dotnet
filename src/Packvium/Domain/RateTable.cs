@@ -62,31 +62,31 @@ public sealed class RateTable
     {
         if (WeightBracketsG.IsEmpty)
         {
-            throw new ArgumentException("rate_table requires at least one weight bracket");
+            throw new ObjectRefusal("invalid_value", "rate_table requires at least one weight bracket");
         }
         if (WeightBracketsG.Length != PricesMinor.Length)
         {
-            throw new ArgumentException("rate_table weight_brackets_g and prices_minor must be the same length");
+            throw new ObjectRefusal("invalid_value", "rate_table weight_brackets_g and prices_minor must be the same length");
         }
         if (WeightBracketsG.Any(bound => bound <= 0))
         {
-            throw new ArgumentException("rate_table weight brackets must be positive");
+            throw new ObjectRefusal("below_minimum", "rate_table weight brackets must be positive");
         }
         if (WeightBracketsG.Zip(WeightBracketsG.Skip(1)).Any(pair => pair.Second <= pair.First))
         {
-            throw new ArgumentException("rate_table weight brackets must be strictly ascending");
+            throw new ObjectRefusal("invalid_value", "rate_table weight brackets must be strictly ascending");
         }
         if (PricesMinor.Any(price => price < 0))
         {
-            throw new ArgumentException("rate_table prices cannot be negative");
+            throw new ObjectRefusal("below_minimum", "rate_table prices cannot be negative");
         }
         if (MinimumChargeMinor < 0)
         {
-            throw new ArgumentException("rate_table minimum_charge_minor cannot be negative");
+            throw new ObjectRefusal("below_minimum", "rate_table minimum_charge_minor cannot be negative");
         }
         if (FuelSurchargePermille < 0)
         {
-            throw new ArgumentException("rate_table fuel_surcharge_permille cannot be negative");
+            throw new ObjectRefusal("below_minimum", "rate_table fuel_surcharge_permille cannot be negative");
         }
     }
 }

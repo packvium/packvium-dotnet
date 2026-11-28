@@ -50,6 +50,11 @@ public sealed class RevisionConformanceTests(ITestOutputHelper output)
                 return produced.Require("error") is JsonNull ? null : $"{name}: refused: {Describe(produced.Get("message"))}";
             case "keys":
                 var reference = (JsonObject)record.Require("reference");
+                // Each engine words an unsupported field its own way, so only the code is compared.
+                if (Describe(produced.Get("error")) == UnsupportedFeatureException.Code)
+                {
+                    produced = new JsonObject([new KeyValuePair<string, JsonValue>("error", produced.Require("error"))]);
+                }
                 var differing = RequestErrorKeys.Where(key =>
                     CanonicalJsonWriter.Write(produced.Get(key) ?? JsonNull.Instance)
                     != CanonicalJsonWriter.Write(reference.Get(key) ?? JsonNull.Instance)).ToList();

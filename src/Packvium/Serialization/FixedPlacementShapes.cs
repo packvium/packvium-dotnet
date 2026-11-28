@@ -16,6 +16,7 @@ public static class FixedPlacementShapes
 {
     public static readonly ImmutableArray<string> Orientations = ["LWH", "LHW", "WLH", "WHL", "HLW", "HWL"];
 
+
     private static readonly string[] RequiredFields = ["item_type", "container_type", "orientation"];
 
     private static readonly string[] Fields = [.. RequiredFields, "container_instance", "position"];
@@ -97,7 +98,7 @@ public static class FixedPlacementShapes
         }
         if (entry.Require("orientation") is not JsonString { Value: var orientation } || !Orientations.Contains(orientation))
         {
-            throw Malformed($"{where}.orientation is one of the six codes", field + "/orientation");
+            throw Malformed($"{where}.orientation {Rotations.VocabularyRule}", field + "/orientation");
         }
         if (JsonValues.WholeNumber(entry.Get("container_instance") ?? new JsonInteger(1)) is not >= 1)
         {

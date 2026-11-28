@@ -163,7 +163,7 @@ public sealed class RequestRulesTests
     [Fact]
     public void WhatTheRulesDoNotNameStillArrivesAsARequestError()
     {
-        var error = Refusal<InvalidRequestException>(d => Item(d)["shape_type"] = "blob");
+        var error = Refusal<InvalidRequestException>(d => Item(d)["shape_type"] = "convex_hull");
         Assert.Equal(("invalid_request", "invalid_value", string.Empty), (error.Code, error.Reason, error.Field));
     }
 
@@ -259,7 +259,7 @@ public sealed class RequestRulesTests
             "time_limit_ms" => () => _ = new PackingConfig(timeLimitMs: 0),
             _ => () => _ = new EffortBudget(MaxSearchNodes: 0),
         };
-        Assert.Equal(message, Assert.Throws<ArgumentException>(build).Message);
+        Assert.Equal(message, Assert.Throws<ObjectRefusal>(build).Message);
     }
 
     [Fact]
@@ -267,8 +267,8 @@ public sealed class RequestRulesTests
     {
         Assert.Equal(Measures.Length(new JsonInteger(100), "mm"), Measures.Length(new JsonFloat(100.0), "mm"));
         Assert.Equal(Measures.Weight(new JsonInteger(5)), Measures.Weight(new JsonFloat(5.0)));
-        Assert.Throws<ArgumentException>(() => Measures.Length(new JsonFloat(1.5), "mm"));
-        Assert.Throws<ArgumentException>(() => Measures.Weight(new JsonFloat(1.5)));
+        Assert.Equal("wrong_type", Assert.Throws<ObjectRefusal>(() => Measures.Length(new JsonFloat(1.5), "mm")).Reason);
+        Assert.Equal("wrong_type", Assert.Throws<ObjectRefusal>(() => Measures.Weight(new JsonFloat(1.5))).Reason);
     }
 
     [Fact]

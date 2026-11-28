@@ -84,26 +84,27 @@ public static class LoadPropagation
         return null;
     }
 
-    /// <summary>Everything resting anywhere above each unit, following the support graph upward.</summary>
+    /// <summary>
+    /// Everything resting anywhere above each unit, following the support graph upward. Walked
+    /// iteratively in the graph's load order: a child's top is above its supporter's, so every
+    /// child's set is complete before its supporter reads it, and no stack depth costs a frame.
+    /// O(sum of set sizes) after the load order, which the graph sorts once in O(n log n).
+    /// </summary>
     public static HashSet<int>[] RestingAbove(IReadOnlyList<LoadUnit> units, LoadSupportGraph? graph = null)
     {
         graph ??= new LoadSupportGraph(units);
-        var memo = new HashSet<int>?[units.Count];
-        HashSet<int> Above(int index)
+        var above = new HashSet<int>[units.Count];
+        foreach (var index in graph.DescendingIndices())
         {
-            if (memo[index] is { } cached)
-            {
-                return cached;
-            }
             var result = new HashSet<int>();
             foreach (var child in graph.Children(index))
             {
                 result.Add(child);
-                result.UnionWith(Above(child));
+                result.UnionWith(above[child]);
             }
-            return memo[index] = result;
+            above[index] = result;
         }
-        return [.. Enumerable.Range(0, units.Count).Select(Above)];
+        return above;
     }
 
     public static int[] StackedCounts(IReadOnlyList<LoadUnit> units, LoadSupportGraph? graph = null) =>
@@ -122,8 +123,8 @@ public static class LoadPropagation
         var above = RestingAbove(units);
         for (var index = 0; index < units.Count; index++)
         {
-            // Python iterates a frozenset; the first later-stop item found is reported, so the
-            // lowest index is taken here -- the order CPython's small-int sets iterate in.
+            // Ascending, not set order: the detail names the first violator, the same one in
+            // every engine.
             foreach (var upper in above[index].Order())
             {
                 if (stops[upper] > stops[index])

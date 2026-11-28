@@ -10,7 +10,7 @@ namespace Packvium.Serialization;
 
 /// <summary>
 /// The request schema's rules over the raw JSON, before any model is built: the first violation wins, in the order every engine
-/// follows -- units, configuration, items, containers -- and is refused with an
+/// follows -- units, output, configuration, each item, item ids, each container, container ids -- and is refused with an
 /// <see cref="InvalidRequestException"/> naming its reason, pointer and fixed detail. Every schema
 /// <c>minimum</c> is a floor and no length or weight is negative. O(size of the request).
 /// </summary>
@@ -23,6 +23,20 @@ public static class RequestRules
         "maximum_volume"];
 
     private static readonly string[] AccessDirectionNames = ["+x", "-x", "+y", "-y", "+z", "-z"];
+
+    // The schema's closed vocabularies, each refused as not_allowed at its own pointer.
+    private static readonly string[] SolverNames =
+        ["grid", "extreme_points", "homogeneous_blocks", "layer", "maximal_spaces", "exact_small"];
+
+    private static readonly string[] RotationNames = ["LWH", "LHW", "WLH", "WHL", "HLW", "HWL"];
+
+    private static readonly string[] LengthUnitCodes = [.. Units.Length.Codes];
+
+    private static readonly string[] WeightUnitCodes = [.. Units.Weight.Codes];
+
+    private static readonly string[] GroundContactRuleNames = ["free", "covered", "single", "multiple"];
+
+    private static readonly string[] ShapeTypeNames = ["rigid_cuboid", "convex_hull", "compressible"];
 
     /// <summary>Every key the request schema's <c>configuration</c> declares; it sets <c>additionalProperties: false</c>.</summary>
     private static readonly HashSet<string> ConfigurationFields = new(
@@ -59,6 +73,7 @@ public static class RequestRules
     {
         var request = RequireObject(data, string.Empty);
         var unit = CheckUnits(request.GetPresent("units"));
+        CheckOutput(request.GetPresent("output"));
         CheckConfiguration(request.GetPresent("configuration"), unit);
         var items = RequiredList(request, "items", string.Empty);
         for (var index = 0; index < items.Items.Length; index++)
@@ -92,6 +107,17 @@ public static class RequestRules
         return text;
     }
 
+    private static void CheckOutput(JsonValue? raw)
+    {
+        if (raw is null)
+        {
+            return;
+        }
+        var output = RequireObject(raw, "/output");
+        Optional(output, "length_unit", "/output", (value, field) => OneOf(value, field, LengthUnitCodes));
+        Optional(output, "weight_unit", "/output", (value, field) => OneOf(value, field, WeightUnitCodes));
+    }
+
     private static void CheckConfiguration(JsonValue? raw, string unit)
     {
         if (raw is null)
@@ -102,6 +128,11 @@ public static class RequestRules
         KnownFields(configuration, "/configuration", ConfigurationFields);
         Optional(configuration, "solver_profile", "/configuration", (value, field) => OneOf(value, field, SolverProfileNames));
         Optional(configuration, "objective", "/configuration", (value, field) => OneOf(value, field, ObjectiveNames));
+        Optional(configuration, "solvers", "/configuration", (value, field) => EachOneOf(value, field, SolverNames));
+        Optional(configuration, "dimensional_weight_length_unit", "/configuration",
+            (value, field) => OneOf(value, field, LengthUnitCodes));
+        Optional(configuration, "dimensional_weight_weight_unit", "/configuration",
+            (value, field) => OneOf(value, field, WeightUnitCodes));
         foreach (var (name, minimum) in ConfigurationIntegers)
         {
             OptionalInteger(configuration, name, "/configuration", minimum);
@@ -128,6 +159,7 @@ public static class RequestRules
         OptionalMeasure(item, "weight", where, Kind.Weight, "g");
         OptionalMeasure(item, "max_top_load", where, Kind.Weight, "g");
         OptionalMeasure(item, "nesting_height", where, Kind.Length, unit);
+        Optional(item, "nesting_height", where, (value, field) => NestingBelowHeight(value, field, item, unit));
         OptionalInteger(item, "max_stacked_items", where, 1);
         OptionalInteger(item, "stop_index", where, 0);
         OptionalInteger(item, "value", where, 0);
@@ -136,6 +168,22 @@ public static class RequestRules
         OptionalRatio(item, "compression_ratio", where, null);
         Optional(item, "stacking_group", where, StackingGroupName);
         Optional(item, "accepts_stacking_groups", where, StackingGroupNames);
+        Optional(item, "allowed_rotations", where, (value, field) => EachOneOf(value, field, RotationNames));
+        Optional(item, "ground_contact_rule", where, (value, field) => OneOf(value, field, GroundContactRuleNames));
+        Optional(item, "shape_type", where, (value, field) => OneOf(value, field, ShapeTypeNames));
+    }
+
+    /// <summary>
+    /// A nested copy sinks by less than its own height, or it would vanish into the one below,
+    /// compared in ticks. Both measures have passed their own rules already. O(1).
+    /// </summary>
+    private static void NestingBelowHeight(JsonValue value, string field, JsonObject item, string unit)
+    {
+        var height = ((JsonObject)item.Require("dimensions")).Require("height");
+        if (Measures.Length(value, unit).Ticks >= Measures.Length(height, unit).Ticks)
+        {
+            throw new InvalidRequestException("invalid_value", field, "must be less than the item's height");
+        }
     }
 
     private static void StackingGroupName(JsonValue value, string field)
@@ -298,12 +346,14 @@ public static class RequestRules
     /// Code-point order, as every engine walks them: a JavaScript object puts integer-like keys
     /// first, so insertion order would name a different bad tag there.
     /// </summary>
-    private static void AccessDirections(JsonValue raw, string where)
+    private static void AccessDirections(JsonValue raw, string where) => EachOneOf(raw, where, AccessDirectionNames);
+
+    private static void EachOneOf(JsonValue raw, string where, string[] allowed)
     {
-        var directions = RequireList(raw, where);
-        for (var index = 0; index < directions.Items.Length; index++)
+        var values = RequireList(raw, where);
+        for (var index = 0; index < values.Items.Length; index++)
         {
-            OneOf(directions.Items[index], where + JsonPointer.Of(index), AccessDirectionNames);
+            OneOf(values.Items[index], where + JsonPointer.Of(index), allowed);
         }
     }
 
@@ -557,20 +607,12 @@ public static class RequestRules
 /// <summary>RFC 6901 pointers: each part prefixed by <c>/</c>, with <c>~</c> and <c>/</c> in keys escaped.</summary>
 public static class JsonPointer
 {
-    public static string Of(params object[] parts) => string.Concat(parts.Select(Part));
+    public static string Of(params object[] parts) => RequestPointer.Of(parts);
 
     /// <summary>One reference token: an array index, or a key with <c>~</c> and <c>/</c> escaped.</summary>
-    public static string Of(string key) => Part(key);
+    public static string Of(string key) => RequestPointer.Of(key);
 
     public static string Of(int index) => "/" + index.ToString(CultureInfo.InvariantCulture);
-
-    private static string Part(object part)
-    {
-        var text = Convert.ToString(part, CultureInfo.InvariantCulture)!;
-        return "/" + (text.AsSpan().IndexOfAny('~', '/') < 0
-            ? text
-            : text.Replace("~", "~0", StringComparison.Ordinal).Replace("/", "~1", StringComparison.Ordinal));
-    }
 }
 
 /// <summary>JSON values judged as every engine can judge them: which numbers are integers, and how a refusal quotes a value.</summary>

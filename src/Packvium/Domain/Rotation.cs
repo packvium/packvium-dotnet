@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Immutable;
+using System.Linq;
 
 namespace Packvium.Domain;
 
@@ -22,6 +23,10 @@ public static class Rotations
 
     /// <summary>The rotations that keep the item's own height vertical.</summary>
     public static ImmutableArray<Rotation> Upright { get; } = [Rotation.LWH, Rotation.WLH];
+
+    /// <summary>The rule a rotation code is refused by, as the request-error tables word a closed vocabulary.</summary>
+    public static string VocabularyRule { get; } =
+        $"must be one of [{string.Join(",", All.Select(rotation => $"\"{rotation}\""))}]";
 
     /// <summary>The public spelling, which is also the enum name.</summary>
     public static string Value(this Rotation rotation) => rotation.ToString();

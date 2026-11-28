@@ -63,19 +63,19 @@ public sealed class PackingRequest
         FixedPlacements = [.. fixedPlacements ?? []];
         if (Items.IsEmpty)
         {
-            throw new ArgumentException("at least one item is required");
+            throw new ObjectRefusal("invalid_value", "at least one item is required");
         }
         if (Containers.IsEmpty)
         {
-            throw new ArgumentException("at least one container is required");
+            throw new ObjectRefusal("invalid_value", "at least one container is required");
         }
         if (Items.Select(item => item.Id).Distinct().Count() != Items.Length)
         {
-            throw new ArgumentException("item ids must be unique");
+            throw new ObjectRefusal("duplicate_id", "item ids must be unique");
         }
         if (Containers.Select(container => container.Id).Distinct().Count() != Containers.Length)
         {
-            throw new ArgumentException("container ids must be unique");
+            throw new ObjectRefusal("duplicate_id", "container ids must be unique");
         }
     }
 

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Frozen;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Numerics;
 
 namespace Packvium.Units;
@@ -25,6 +26,9 @@ public readonly record struct Weight : IComparable<Weight>
         ["lb"] = TicksPerLb,
         ["lbs"] = TicksPerLb,
     }.ToFrozenDictionary(StringComparer.Ordinal);
+
+    /// <summary>The unit codes the request schema names wherever it asks for a weight unit by itself.</summary>
+    public static ImmutableArray<string> Codes { get; } = ["mg", "g", "kg", "oz", "lb"];
 
     /// <summary>Suffixes <c>Weight.parse</c> recognises in a string, in its regex's order.</summary>
     private static readonly string[] Suffixes = ["mg", "kg", "g", "oz", "lb", "lbs", "tick", "ticks"];
@@ -77,5 +81,7 @@ public readonly record struct Weight : IComparable<Weight>
     public static long MultiplierOf(string unit, bool strip) =>
         Multipliers.TryGetValue(PythonText.UnitKey(unit, strip), out var multiplier)
             ? multiplier
-            : throw new ArgumentException($"unsupported weight unit: {unit}");
+            : throw (strip
+                ? new UnitRefusal("invalid_unit", $"unsupported weight unit: {unit}")
+                : new ArgumentException($"unsupported weight unit: {unit}"));
 }

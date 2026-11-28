@@ -46,6 +46,10 @@ internal static class RevisionsCommand
             return Answer(new JsonString(refusal.Code), new JsonString(refusal.Message), JsonNull.Instance,
                 ("reason", new JsonString(refusal.Reason)), ("field", new JsonString(refusal.Field)));
         }
+        catch (UnsupportedFeatureException refusal) when (Op(@case) == "admit")
+        {
+            return Answer(new JsonString(UnsupportedFeatureException.Code), new JsonString(refusal.Message), JsonNull.Instance);
+        }
 #pragma warning disable CA1031 // Any other refusal is reported as one, so a single case cannot end the batch.
         catch (Exception error)
 #pragma warning restore CA1031

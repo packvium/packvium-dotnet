@@ -322,9 +322,27 @@ public static class CandidateFinder
         }
         if (state.Container.Axles is { } axles)
         {
-            ordered.AddRange(AxleBalancedPoints(state, item, forms, limitX, axles));
+            AppendUnseen(ordered, AxleBalancedPoints(state, item, forms, limitX, axles));
         }
         return ordered;
+    }
+
+    /// <summary>
+    /// Appends the <paramref name="extra"/> points not already offered, keeping their order. A repeated
+    /// point is the same candidate scanned twice: it can change nothing but the counted effort.
+    /// O(k + a) for k offered and a extra points.
+    /// </summary>
+    internal static void AppendUnseen(List<Point> points, List<Point> extra)
+    {
+        var fresh = new HashSet<(long, long, long)>(extra.Select(point => (point.X, point.Y, point.Z)));
+        fresh.ExceptWith(points.Select(point => (point.X, point.Y, point.Z)));
+        foreach (var point in extra)
+        {
+            if (fresh.Remove((point.X, point.Y, point.Z)))
+            {
+                points.Add(point);
+            }
+        }
     }
 
     /// <summary>Origins where a nesting item sinks into an existing identical footprint, sorted (z, y, x).</summary>

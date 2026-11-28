@@ -152,7 +152,7 @@ public sealed class Release16BehaviourTests
         var mm = Length.TicksPerMm;
         var spec = new MadeToMeasure(new Triple(60 * mm, 60 * mm, 60 * mm), new Triple(25 * mm, 25 * mm, 25 * mm),
             outerAllowance: new Triple(long.MaxValue - 1, 0, 0));
-        Assert.Contains("past 64 bits", Assert.Throws<System.ArgumentException>(() =>
+        Assert.Contains("past 64 bits", Assert.Throws<ObjectRefusal>(() =>
             new Container("machine", Dimensions.Mm("1510", "1510", "1510"), madeToMeasure: spec)).Message);
     }
 }

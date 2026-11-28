@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Frozen;
 using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.Linq;
 using System.Numerics;
 
 namespace Packvium.Units;
@@ -25,6 +27,12 @@ public readonly record struct Length : IComparable<Length>
         ["inches"] = TicksPerInch,
         ["ft"] = TicksPerInch * 12,
     }.ToFrozenDictionary(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The unit codes the request schema names wherever it asks for a length unit by itself (an
+    /// output unit, a dimensional-weight unit); a measure's own unit may also be spelt out.
+    /// </summary>
+    public static ImmutableArray<string> Codes { get; } = ["mm", "cm", "m", "in", "ft"];
 
     /// <summary>Suffixes <c>Length.parse</c> recognises in a string, in its regex's order.</summary>
     private static readonly string[] Suffixes = ["mm", "cm", "m", "in", "inch", "inches", "ft", "tick", "ticks"];
@@ -83,8 +91,21 @@ public readonly record struct Length : IComparable<Length>
     /// <summary>Whether <paramref name="unit"/>, lowered and stripped as the parser reads it, is a length unit.</summary>
     public static bool Knows(string unit) => Multipliers.ContainsKey(PythonText.UnitKey(unit, strip: true));
 
+    /// <summary>
+    /// The output unit a request without <c>output.length_unit</c> is written in: the request's own
+    /// <c>units.length</c> spelt as the schema's output code, case and surrounding space ignored and a
+    /// spelt-out name folded to its code (<c>"Inches"</c> is <c>in</c>). A unit no output code names,
+    /// the internal <c>tick</c>, gives <c>mm</c>, the default of both blocks. O(1).
+    /// </summary>
+    public static string OutputCode(string requestUnit) =>
+        Multipliers.TryGetValue(PythonText.UnitKey(requestUnit, strip: true), out var multiplier)
+            ? Codes.FirstOrDefault(code => Multipliers[code] == multiplier, "mm")
+            : "mm";
+
     public static long MultiplierOf(string unit, bool strip) =>
         Multipliers.TryGetValue(PythonText.UnitKey(unit, strip), out var multiplier)
             ? multiplier
-            : throw new ArgumentException($"unsupported length unit: {unit}");
+            : throw (strip
+                ? new UnitRefusal("invalid_unit", $"unsupported length unit: {unit}")
+                : new ArgumentException($"unsupported length unit: {unit}"));
 }

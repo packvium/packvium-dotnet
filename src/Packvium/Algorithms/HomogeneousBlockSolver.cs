@@ -29,6 +29,12 @@ public sealed class HomogeneousBlockSolver(IReadOnlyList<IPlacementConstraint>? 
     /// </summary>
     private const int LatticeMemoLimit = 4096;
 
+    /// <summary>Leading blocks the <c>quality</c> lookahead completes in each round.</summary>
+    private const int LookaheadWidth = 4;
+
+    /// <summary>The lookahead's lattice-node budget per mode, as a multiple of <c>container_plan_node_limit</c>.</summary>
+    private const long LookaheadNodeFactor = 64;
+
     private readonly IReadOnlyList<IPlacementConstraint> constraints = constraints ?? [];
     private readonly ImmutableArray<string> modes = modes.IsDefault ? Modes : modes;
 
@@ -84,6 +90,11 @@ public sealed class HomogeneousBlockSolver(IReadOnlyList<IPlacementConstraint>? 
                 break;
             }
             var solution = PackMode(container, sequence, items, config, stats, deadline, mode == "count", lattices);
+            if (config.Profile == SolverProfile.Quality && !deadline.Expired)
+            {
+                solution = Lookahead(container, sequence, items, config, stats, deadline, mode == "count", lattices,
+                    solution);
+            }
             reached = reached || solution.TimeLimitReached;
             if (best is null || SolutionKey(solution, byVolume) < SolutionKey(best, byVolume))
             {
@@ -131,35 +142,149 @@ public sealed class HomogeneousBlockSolver(IReadOnlyList<IPlacementConstraint>? 
         PackingConfig config, SearchStats stats, Deadline deadline, bool countFirst,
         Dictionary<LatticeSummaryKey, GroupLattice> lattices)
     {
-        var state = new ContainerState(container, sequence);
-        var spaces = new List<Space> { new(Point.Origin, container.InnerDimensions) };
-        var remaining = new SortedDictionary<string, List<ItemInstance>>(CodePointComparer.Instance);
-        foreach (var instance in items)
-        {
-            if (!remaining.TryGetValue(instance.Item.Id, out var list))
-            {
-                remaining[instance.Item.Id] = list = [];
-            }
-            list.Add(instance);
-        }
-        var forms = remaining.ToDictionary(entry => entry.Key, entry => Forms(entry.Value[0], config), StringComparer.Ordinal);
+        var round = Round.Empty(container, sequence, items, config);
         long nodes = 0;
-        var reached = false;
-        while (spaces.Count > 0 && remaining.Values.Any(list => list.Count > 0))
+        var (solution, reached) = Complete(round, container, config, stats, deadline, countFirst, lattices, ref nodes);
+        return new SingleContainerSolution(solution.State, solution.Unpacked, false, reached || deadline.Expired);
+    }
+
+    /// <summary>
+    /// The mutable state of one enumeration: the committed placements, the free spaces and each
+    /// type's instances still to place, in code-point order of their ids.
+    /// </summary>
+    private sealed record Round(ContainerState State, List<Space> Spaces,
+        SortedDictionary<string, List<ItemInstance>> Remaining, Dictionary<string, List<Form>> TypeForms)
+    {
+        public List<Space> Spaces { get; set; } = Spaces;
+
+        public static Round Empty(Container container, int sequence, IReadOnlyList<ItemInstance> items, PackingConfig config)
         {
-            var best = NextBlock(state, spaces, remaining, forms, container, config, stats, deadline, countFirst,
-                lattices, ref nodes, ref reached);
-            if (best is null || reached)
+            var remaining = new SortedDictionary<string, List<ItemInstance>>(CodePointComparer.Instance);
+            foreach (var instance in items)
+            {
+                if (!remaining.TryGetValue(instance.Item.Id, out var list))
+                {
+                    remaining[instance.Item.Id] = list = [];
+                }
+                list.Add(instance);
+            }
+            var forms = remaining.ToDictionary(entry => entry.Key, entry => Forms(entry.Value[0], config), StringComparer.Ordinal);
+            return new Round(new ContainerState(container, sequence), [new Space(Point.Origin, container.InnerDimensions)],
+                remaining, forms);
+        }
+
+        public bool HasWork => Spaces.Count > 0 && Remaining.Values.Any(list => list.Count > 0);
+
+        /// <summary>A copy a trial completion may mutate; the forms are shared, being read only.</summary>
+        public Round Copy()
+        {
+            var remaining = new SortedDictionary<string, List<ItemInstance>>(CodePointComparer.Instance);
+            foreach (var (itemId, available) in Remaining)
+            {
+                remaining[itemId] = [.. available];
+            }
+            return new Round(State.Copy(), Spaces, remaining, TypeForms);
+        }
+
+        public ImmutableArray<ItemInstance> Unpacked() => [.. Remaining.Values.SelectMany(list => list)];
+    }
+
+    /// <summary>
+    /// Commits each round's leading block until nothing more fits; mutates <paramref name="round"/>.
+    /// Returns the solution and whether a limit stopped it (a stopped round commits nothing).
+    /// </summary>
+    private static (SingleContainerSolution Solution, bool Reached) Complete(Round round, Container container,
+        PackingConfig config, SearchStats stats, Deadline deadline, bool countFirst,
+        Dictionary<LatticeSummaryKey, GroupLattice> lattices, ref long nodes)
+    {
+        var reached = false;
+        while (round.HasWork)
+        {
+            var leading = LeadingBlocks(round, container, config, stats, deadline, countFirst, lattices, 1, ref nodes,
+                ref reached);
+            if (leading.Count == 0 || reached)
             {
                 break;
             }
-            var chosen = remaining[best.ItemId].Take((int)best.Count).ToList();
-            remaining[best.ItemId].RemoveRange(0, (int)best.Count);
-            FillBlock(state, best, chosen, config.Clearance.Ticks, stats);
-            spaces = MaximalSpaces.SubtractAll(spaces, [best.Box], stats);
+            Commit(round, leading[0], config, stats);
         }
-        var unpacked = remaining.Values.SelectMany(list => list).ToImmutableArray();
-        return new SingleContainerSolution(state, unpacked, false, reached || deadline.Expired);
+        return (new SingleContainerSolution(round.State, round.Unpacked(), false, reached), reached);
+    }
+
+    /// <summary>
+    /// <paramref name="greedy"/>, or a better answer from completing each round's leading blocks.
+    /// Each round ranks its <see cref="LookaheadWidth"/> leading blocks, completes each one greedily
+    /// on a copy and commits the block whose completion ranks best. The greedy answer is the first
+    /// completion, so the result is never worse than it; the round's first block is the greedy choice
+    /// after the block committed last, so its completion is the one already known and is not
+    /// recomputed -- unless the greedy pass was stopped by <c>container_plan_node_limit</c>, when the
+    /// first round completes it under the lookahead's larger budget. The work is counted against
+    /// <see cref="LookaheadNodeFactor"/> times <c>container_plan_node_limit</c> lattice nodes; when that
+    /// runs out the best completion so far stands, and only the deadline or the effort budget marks the
+    /// answer as stopped by a limit. At most W completions of O(B) rounds per committed block, B the
+    /// blocks of one completion, each round costing what a greedy round costs.
+    /// </summary>
+    private static SingleContainerSolution Lookahead(Container container, int sequence, IReadOnlyList<ItemInstance> items,
+        PackingConfig config, SearchStats stats, Deadline deadline, bool countFirst,
+        Dictionary<LatticeSummaryKey, GroupLattice> lattices, SingleContainerSolution greedy)
+    {
+        var limit = config.ContainerPlanNodeLimit;
+        var budget = config.WithSearchWidths(config.MaxCandidatesPerItem, config.ContainerPlanBeamWidth,
+            limit > long.MaxValue / LookaheadNodeFactor ? long.MaxValue : limit * LookaheadNodeFactor);
+        var byVolume = config.RanksByVolume;
+        var round = Round.Empty(container, sequence, items, config);
+        var (best, bestKey) = (greedy, SolutionKey(greedy, byVolume));
+        var known = greedy.TimeLimitReached ? null : greedy;
+        long nodes = 0;
+        while (round.HasWork)
+        {
+            var reached = false;
+            var leading = LeadingBlocks(round, container, budget, stats, deadline, countFirst, lattices, LookaheadWidth,
+                ref nodes, ref reached);
+            if (leading.Count == 0 || reached)
+            {
+                break;
+            }
+            (SortKey Key, SingleContainerSolution Solution, Block Block)? chosen =
+                known is null ? null : (SolutionKey(known, byVolume), known, leading[0]);
+            foreach (var block in known is null ? leading : leading.Skip(1))
+            {
+                var trial = round.Copy();
+                Commit(trial, block, config, stats);
+                (var completion, reached) = Complete(trial, container, budget, stats, deadline, countFirst, lattices,
+                    ref nodes);
+                if (reached)
+                {
+                    break;
+                }
+                var key = SolutionKey(completion, byVolume);
+                if (chosen is not { } current || key < current.Key)
+                {
+                    chosen = (key, completion, block);
+                }
+            }
+            if (reached || chosen is not { } winner)
+            {
+                break;
+            }
+            known = winner.Solution;
+            if (winner.Key < bestKey)
+            {
+                (best, bestKey) = (winner.Solution, winner.Key);
+            }
+            Commit(round, winner.Block, config, stats);
+        }
+        return new SingleContainerSolution(best.State, best.Unpacked, false, best.TimeLimitReached || deadline.Expired);
+    }
+
+    /// <summary>Places every member of <paramref name="block"/> and carves its box out of the free spaces.</summary>
+    private static void Commit(Round round, Block block, PackingConfig config, SearchStats stats)
+    {
+        var available = round.Remaining[block.ItemId];
+        var chosen = available.Take((int)block.Count).ToList();
+        available.RemoveRange(0, (int)block.Count);
+        FillBlock(round.State, block, chosen, config.Clearance.Ticks, stats);
+        round.Spaces = MaximalSpaces.SubtractAll(round.Spaces, [block.Box], stats);
     }
 
     /// <summary>Each unique rotation of a type with its envelope and physical volume.</summary>
@@ -187,21 +312,22 @@ public sealed class HomogeneousBlockSolver(IReadOnlyList<IPlacementConstraint>? 
     }
 
     /// <summary>
-    /// One round's winning block. Each (space, type, rotation) group is summarised by
-    /// <see cref="Lattice"/>, whose first largest count is the only node of the group that can win,
-    /// and its nodes are charged at once. A counted limit falling inside a group is charged exactly
-    /// the nodes the per-node loop would have expanded before stopping; a wall-clock expiry inside a
-    /// group is seen at the next group instead, and any stop discards the whole round. O(S * T * R)
-    /// groups per round, each O(X * Y) on its first appearance and O(1) from the memo.
+    /// One round's <paramref name="leaders"/> leading blocks, best first. Each (space, type, rotation)
+    /// group is summarised by <see cref="Lattice"/>, whose first largest count is the only node of the
+    /// group that can win, and its nodes are charged at once. A counted limit falling inside a group is
+    /// charged exactly the nodes the per-node loop would have expanded before stopping; a wall-clock
+    /// expiry inside a group is seen at the next group instead, and any stop discards the whole round.
+    /// O(S * T * R) groups per round, each O(X * Y) on its first appearance and O(1) from the memo,
+    /// plus O(L) to keep each of at most L leaders in order.
     /// </summary>
-    private static Block? NextBlock(ContainerState state, List<Space> spaces,
-        SortedDictionary<string, List<ItemInstance>> remaining, Dictionary<string, List<Form>> forms, Container container,
-        PackingConfig config, SearchStats stats, Deadline deadline, bool countFirst,
-        Dictionary<LatticeSummaryKey, GroupLattice> lattices, ref long nodes, ref bool reached)
+    private static List<Block> LeadingBlocks(Round round, Container container, PackingConfig config, SearchStats stats,
+        Deadline deadline, bool countFirst, Dictionary<LatticeSummaryKey, GroupLattice> lattices, int leaders,
+        ref long nodes, ref bool reached)
     {
         var nodeLimit = config.ContainerPlanNodeLimit;
         var nodeCeiling = deadline.SearchNodeCeiling(stats);
-        Block? best = null;
+        var (state, spaces, remaining, forms) = (round.State, round.Spaces, round.Remaining, round.TypeForms);
+        var leading = new List<Block>(leaders + 1);
         // Capacity reads only the committed state, so it is fixed for the whole round.
         var types = new List<(string ItemId, long Capacity, List<Form> Forms)>();
         foreach (var (itemId, available) in remaining)
@@ -229,7 +355,7 @@ public sealed class HomogeneousBlockSolver(IReadOnlyList<IPlacementConstraint>? 
                     if (nodes >= nodeLimit || deadline.Expired)
                     {
                         reached = true;
-                        return best;
+                        return leading;
                     }
                     var key = new LatticeSummaryKey(columns, rows, height / form.Envelope.Height.Ticks, capacity);
                     if (!lattices.TryGetValue(key, out var lattice))
@@ -250,21 +376,41 @@ public sealed class HomogeneousBlockSolver(IReadOnlyList<IPlacementConstraint>? 
                         stats.SearchNodesExpanded += budget;
                         nodes += budget;
                         reached = true;
-                        return best;
+                        return leading;
                     }
                     nodes += lattice.Nodes;
                     stats.SearchNodesExpanded += lattice.Nodes;
-                    // The key's first field is -count or -used volume; a group that loses on it
-                    // loses on the key, so its key is never built.
+                    // The key's first field is -count or -used volume; a group that loses on it to
+                    // the last kept block loses on the key, so its key is never built.
+                    var full = leading.Count == leaders;
                     if (lattice.Count > 0
-                        && (best is null || (countFirst ? -lattice.Count : -lattice.Count * form.Volume) <= best.Lead))
+                        && (!full || (countFirst ? -lattice.Count : -lattice.Count * form.Volume) <= leading[^1].Lead))
                     {
-                        best = BetterBlock(best, countFirst, space, spaceVolume, itemId, form, lattice);
+                        var block = NewBlock(countFirst, space, spaceVolume, itemId, form, lattice);
+                        if (!full || block.Score < leading[^1].Score)
+                        {
+                            Keep(leading, block, leaders);
+                        }
                     }
                 }
             }
         }
-        return best;
+        return leading;
+    }
+
+    /// <summary>Inserts <paramref name="block"/> after every kept block that does not rank behind it, then drops the overflow.</summary>
+    private static void Keep(List<Block> leading, Block block, int leaders)
+    {
+        var at = leading.Count;
+        while (at > 0 && block.Score < leading[at - 1].Score)
+        {
+            at--;
+        }
+        leading.Insert(at, block);
+        if (leading.Count > leaders)
+        {
+            leading.RemoveAt(leaders);
+        }
     }
 
     /// <summary>
@@ -293,9 +439,9 @@ public sealed class HomogeneousBlockSolver(IReadOnlyList<IPlacementConstraint>? 
         return new GroupLattice(nodes, count, bestNx, bestNy, bestNz);
     }
 
-    /// <summary><paramref name="best"/>, or this group's winning block when its key ranks strictly ahead.</summary>
-    private static Block BetterBlock(Block? best, bool countFirst, Space space, Int128 spaceVolume, string itemId,
-        Form form, GroupLattice lattice)
+    /// <summary>A group's winning block with the key the mode ranks it by, smaller first.</summary>
+    private static Block NewBlock(bool countFirst, Space space, Int128 spaceVolume, string itemId, Form form,
+        GroupLattice lattice)
     {
         var count = lattice.Count;
         var usedVolume = count * form.Volume;
@@ -303,10 +449,6 @@ public sealed class HomogeneousBlockSolver(IReadOnlyList<IPlacementConstraint>? 
         object[] lead = countFirst ? [-count, -spaceFillPpm, -usedVolume] : [-usedVolume, -spaceFillPpm, -count];
         var score = SortKey.Of([.. lead, space.Origin.Z, space.Origin.Y, space.Origin.X, itemId,
             form.Rotation.Value(), lattice.Nx, lattice.Ny, lattice.Nz]);
-        if (best is not null && !(score < best.Score))
-        {
-            return best;
-        }
         return new Block(space, itemId, form.Rotation, form.Physical, form.Envelope, lattice.Nx, lattice.Ny, lattice.Nz,
             count, score) { Lead = countFirst ? -count : -usedVolume };
     }

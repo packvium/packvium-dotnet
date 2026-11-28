@@ -323,7 +323,7 @@ public sealed class FixedPlacementTests
         { """[{"item_type": "cube", "container_type": "box"}]""", "fixed_placements[0] needs [\"orientation\"]" },
         { """[{"item_type": "", "container_type": "box", "orientation": "LWH"}]""", "fixed_placements[0].item_type is a non-empty string" },
         { """[{"item_type": "cube", "container_type": 5, "orientation": "LWH"}]""", "fixed_placements[0].container_type is a non-empty string" },
-        { """[{"item_type": "cube", "container_type": "box", "orientation": "XYZ"}]""", "fixed_placements[0].orientation is one of the six codes" },
+        { """[{"item_type": "cube", "container_type": "box", "orientation": "XYZ"}]""", "fixed_placements[0].orientation must be one of [\"LWH\",\"LHW\",\"WLH\",\"WHL\",\"HLW\",\"HWL\"]" },
         { """[{"item_type": "cube", "container_type": "box", "orientation": "LWH", "container_instance": "1"}]""", "fixed_placements[0].container_instance counts from 1" },
         { """[{"item_type": "cube", "container_type": "box", "orientation": "LWH", "container_instance": true}]""", "fixed_placements[0].container_instance counts from 1" },
         { """[{"item_type": "cube", "container_type": "box", "orientation": "LWH", "container_instance": 1.5}]""", "fixed_placements[0].container_instance counts from 1" },

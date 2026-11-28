@@ -33,7 +33,7 @@ public static class QuantityText
         }
         if (FractionalDigitsOfPlainDecimal(runes) > MaxFractionalDigits)
         {
-            throw new ArgumentException("decimal has more fractional digits than a tick can distinguish");
+            throw new UnitRefusal("wrong_type", "decimal has more fractional digits than a tick can distinguish");
         }
         return PythonDecimal.ToRational(text);
     }

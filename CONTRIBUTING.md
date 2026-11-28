@@ -21,7 +21,7 @@ The suite should be green before you change anything, so that any later failure 
 (1/16000 mm) and every weight an integer number of 1/8 µg. A change that makes a placement
 decision depend on binary floating point is wrong even if the tests pass. Ratios are compared
 as scaled integers or exact rationals. See
-[Packvium's units and numeric contract](https://github.com/packvium/packvium-python/blob/v1.6.0/docs/UNITS-AND-NUMERICS.md).
+[Packvium's units and numeric contract](https://github.com/packvium/packvium-python/blob/v1.7.0/docs/UNITS-AND-NUMERICS.md).
 
 **No runtime dependencies.** The package installs with nothing else. A new dependency needs a
 very good argument.

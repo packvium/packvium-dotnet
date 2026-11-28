@@ -9,13 +9,13 @@ return identical results at the same version; Rust and JavaScript return a valid
 above the objective floor. Every release is checked against the reference engine, the Python
 package `packvium`, byte for byte.
 
-> **Version 1.6.0.** This release corresponds to Packvium 1.6.0 in the other languages, and
-> it was checked against the 1.6.0 conformance corpus: every packing request, every commerce case,
+> **Version 1.7.0.** This release corresponds to Packvium 1.7.0 in the other languages, and
+> it was checked against the 1.7.0 conformance corpus: every packing request, every commerce case,
 > every execution plan, every operator-lock scenario, every operational-artifact case, every
-> malformed-request case, every plan-revision case, and every case that pins the
-> unsupported-placements warning or an unpacked reason.
+> malformed-request case, every plan-revision case, every case that pins the
+> unsupported-placements warning or an unpacked reason, and every result-validation case.
 > Field names, status codes and the objective vector stay the same for all of 1.x.
-> Read [Packvium's guarantees](https://github.com/packvium/packvium-python/blob/v1.6.0/docs/GUARANTEES.md)
+> Read [Packvium's guarantees](https://github.com/packvium/packvium-python/blob/v1.7.0/docs/GUARANTEES.md)
 > before relying on a result.
 
 ## Contents
@@ -26,6 +26,7 @@ package `packvium`, byte for byte.
 - [The JSON request API](#the-json-request-api)
 - [Constraints and objectives](#constraints-and-objectives)
 - [Boxes cut to measure, flat bags and stacking groups](#boxes-cut-to-measure-flat-bags-and-stacking-groups)
+- [Validating a result](#validating-a-result)
 - [Commerce](#commerce)
 - [Execution plans](#execution-plans)
 - [Operational artifacts](#operational-artifacts)
@@ -44,7 +45,7 @@ package `packvium`, byte for byte.
 ## Install
 
 ```bash
-dotnet add package Packvium --version 1.6.0
+dotnet add package Packvium --version 1.7.0
 ```
 
 The package targets **.NET 8** (`net8.0`) and **.NET 10** (`net10.0`), and has no runtime
@@ -106,6 +107,14 @@ foreach (var unpacked in result.Unpacked)
 Positions are `Point`s in ticks of 1/16000 mm. `ResultWriter.Write(result)` turns a result
 into the shared JSON result document.
 
+A request built from objects is held to the same rules as the JSON request below. A constructor
+that refuses its own value throws `ObjectRefusal`, an `InvalidRequestException` with the schema's
+`Reason` (`below_minimum`, `not_allowed`, `invalid_value`, ...), an empty `Field` and the
+constructor's text as its message. `Packer.Pack` then walks the objects in the JSON rules' order
+and refuses a value the JSON path would refuse with the same reason, pointer and message: a
+container's `TagLimits` entry past 2^53 - 1, two items with one id, or a `FixedPlacement` whose
+container instance counts from 0 (`FixedPlacementException`, `invalid_fixed_placement`).
+
 ## The JSON request API
 
 A request is a JSON document and so is the result. `JsonApi.PackFromJson` takes the same
@@ -130,6 +139,15 @@ search runs. `Code` is `invalid_request`, `Reason` one of a closed set every eng
 the bad value, and the message the same text in every engine:
 `invalid_request: /items/0/quantity: must be at least 1`. Every `minimum` of the request schema
 is a floor, and no length or weight may be negative.
+
+Every closed vocabulary of the schema is refused as `not_allowed` at its pointer: rotations,
+`shape_type`, `ground_contact_rule`, `configuration.solvers`, the output and dimensional-weight
+units (only the codes `mm`, `cm`, `m`, `in`, `ft` and `mg`, `g`, `kg`, `oz`, `lb`; `ticks` is not
+an output unit) and a fixed placement's `orientation`. A `nesting_height` not below the item's
+height is `invalid_value`. Without an `output` block the result is written in the request's own
+`units.length`, spelt as its code (`" Inches "` writes `in`, `tick` writes `mm`). When a request
+breaks several rules, the first is named in this order: unsupported fields, units, output,
+configuration, each item, item ids, each container, container ids, fixed placements.
 
 `configuration` and its `effort_budget` are closed: a key the schema does not declare, such as
 `profile` for `solver_profile` or `top_k` for `alternatives`, is refused as `not_allowed` with
@@ -279,6 +297,31 @@ var drum = new Item("drum", Dimensions.Mm("400", "400", "400"), Weight.Parse("5 
     stackingGroup: "drum", acceptsStackingGroups: ["carton"]);
 var crate = new Item("crate", Dimensions.Mm("400", "400", "400"), Weight.Parse("1 kg"), quantity: 2,
     stackingGroup: "crate");
+```
+
+## Validating a result
+
+`ResultValidation.Validate(request, result)` is the reference validator every Packvium package
+ships. It takes a request and a result as JSON documents, from this package or any other
+engine, recomputes units, geometry, support and load from first principles, and returns the
+issues it finds, each a `ResultIssue` with a `Code` and a `Detail` the same in every engine. An
+empty list means the result is valid. A result that is not the contract's shape is refused with
+`MalformedResultException`, whose `Kind` is `contract` or `shape`.
+
+```csharp
+using Packvium.Serialization;
+using Packvium.Validation;
+
+var request = JsonReader.Parse("""
+    {"items": [{"id": "box", "quantity": 8, "dimensions": {"length": "50", "width": "50", "height": "50"}}],
+     "containers": [{"id": "carton", "inner_dimensions": {"length": "100", "width": "100", "height": "100"}}]}
+    """);
+var result = JsonApi.PackFromJson(request);
+
+foreach (var issue in ResultValidation.Validate(request, result))
+{
+    Console.WriteLine(issue);   // nothing: the result is valid
+}
 ```
 
 ## Commerce
@@ -535,8 +578,10 @@ echo '{"items":[{"id":"box","quantity":8,"dimensions":{"length":"50","width":"50
 way and prints the canonical result document. A malformed case exits 1 with `input error:` on
 standard error. A rejection is a normal answer and exits 0.
 
-`Packvium.Cli artifacts` and `Packvium.Cli revisions` are test-only subcommands: each reads a
-JSON list of cases on standard input and writes one JSON line per case on standard output.
+`Packvium.Cli artifacts`, `Packvium.Cli revisions` and `Packvium.Cli validate` are test-only
+subcommands: each reads a JSON list of cases on standard input and writes one JSON line per case
+on standard output. `validate` takes `{"request", "result"}` pairs of JSON text and answers
+`{"issues": [...]}` or `{"refusal": {"kind", "message"}}` for each.
 
 ## Examples
 
@@ -598,20 +643,23 @@ The same input and seed always give the same result, on every machine and every 
 ## Guarantees
 
 The guarantees are the same as in every Packvium engine, and
-[Packvium's guarantees](https://github.com/packvium/packvium-python/blob/v1.6.0/docs/GUARANTEES.md)
+[Packvium's guarantees](https://github.com/packvium/packvium-python/blob/v1.7.0/docs/GUARANTEES.md)
 states them. Every release of this package is checked against the shared Packvium conformance
 corpus for that version, which lives outside this repository:
 
-- **Packing.** All 435 packing requests with a recorded answer give the reference engine's
+- **Packing.** All 451 packing requests with a recorded answer give the reference engine's
   result byte for byte in canonical form, and all 12 requests that must be refused are refused
   with the expected message.
-- **Everything built from a result.** The execution plan of every one of those 435 results,
-  all 456 operational-artifact cases (JSON, CSV and HTML, or the expected error code), all 102
+- **Everything built from a result.** The execution plan of every one of those 451 results,
+  all 472 operational-artifact cases (JSON, CSV and HTML, or the expected error code), all 102
   plan-revision cases and all six operator-lock cases give the reference engine's bytes.
-- **Requests and commerce.** All 177 malformed requests are refused with the reference engine's
-  code, reason, field and message, and all 55 commerce cases give its answer.
-- **Warnings and reasons.** The 3 cases that pin the unsupported-placements warning and the 9
+- **Requests and commerce.** All 207 malformed requests are refused with the reference engine's
+  code, reason, field and message, built as JSON and, wherever objects can hold them, as
+  objects, and all 55 commerce cases give its answer.
+- **Warnings and reasons.** The 3 cases that pin the unsupported-placements warning and the 12
   that pin an unpacked reason give the expected warning and reasons.
+- **Result validation.** `ResultValidation.Validate` gives the reference validator's issues, or
+  its refusal, on every one of the 5451 pairs of the shared validation suite.
 
 In this repository, `dotnet test` runs the unit tests, the CLI tests and every example; the
 tests that need the conformance corpus skip and say why.
@@ -633,7 +681,7 @@ conformance corpus reaches:
 ## Versioning
 
 The package follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and each
-version matches the Packvium release of the same number: 1.6.0 here passes the 1.6.0
+version matches the Packvium release of the same number: 1.7.0 here passes the 1.7.0
 conformance corpus. The request and result formats, status codes and the objective vector are
 frozen for all of 1.x. What changed in each release is in the
 [changelog](https://github.com/packvium/packvium-dotnet/blob/main/CHANGELOG.md).

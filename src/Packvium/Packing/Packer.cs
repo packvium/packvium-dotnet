@@ -46,7 +46,13 @@ public sealed class Packer(PackingConfig? config = null, ExtensionRegistry? exte
     public PackingResult Pack(IEnumerable<Item> items, IEnumerable<Container> containers,
         IEnumerable<FixedPlacement> fixedPlacements)
     {
-        var request = new PackingRequest(items, containers, fixedPlacements);
+        ImmutableArray<Item> requestItems = [.. items];
+        ImmutableArray<Container> requestContainers = [.. containers];
+        ImmutableArray<FixedPlacement> requestFixed = [.. fixedPlacements];
+        // The JSON path's rules, with its reason and field: a request built from objects is
+        // refused exactly where the same request as JSON would be.
+        RequestObjects.Check(requestItems, requestContainers, config, requestFixed);
+        var request = new PackingRequest(requestItems, requestContainers, requestFixed);
         RefuseUnpriceableObjective(request, config);
         var fixedLoad = FixedPlacementAdmission.Admit(request, config.MinimumSupportRatio, config.Clearance,
             config.MaxContainers);

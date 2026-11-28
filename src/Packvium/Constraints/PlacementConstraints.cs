@@ -117,7 +117,7 @@ public sealed class SupportConstraint(double globalMinimum = 0.0) : IPlacementCo
         var candidate = context.EnvelopeBox;
         var support = DirectSupportView.For(context.Placements, context.Item, candidate);
         var supporters = support.Supporters.Select(entry => entry.Box).ToList();
-        if (GroundContactFailure(context.Item.Item.GroundContactRule, candidate, support.Surfaces, supporters.Count)
+        if (GroundContactFailure(context.Item.Item.GroundContactRule, candidate, supporters)
             is { } contact)
         {
             return contact;
@@ -150,27 +150,30 @@ public sealed class SupportConstraint(double globalMinimum = 0.0) : IPlacementCo
     }
 
     private static ConstraintResult? GroundContactFailure(string? rule, AxisAlignedBox candidate,
-        ImmutableArray<AxisAlignedBox> surfaces, int supporterCount) => rule switch
+        List<AxisAlignedBox> supporters) => rule switch
     {
-        "covered" when !TouchesCorners(candidate, surfaces) => ConstraintResult.Reject("ground_contact_violation",
-            $"covered: {supporterCount} supporter(s), not all four corners touched"),
-        "single" when supporterCount != 1 => ConstraintResult.Reject("ground_contact_violation",
-            $"single: rests on {supporterCount} item(s)"),
-        "multiple" when supporterCount < 2 => ConstraintResult.Reject("ground_contact_violation",
-            $"multiple: rests on {supporterCount} item(s)"),
+        "covered" when !TouchesCorners(candidate, supporters) => ConstraintResult.Reject("ground_contact_violation",
+            $"covered: {supporters.Count} supporter(s), not all four corners touched"),
+        "single" when supporters.Count != 1 => ConstraintResult.Reject("ground_contact_violation",
+            $"single: rests on {supporters.Count} item(s)"),
+        "multiple" when supporters.Count < 2 => ConstraintResult.Reject("ground_contact_violation",
+            $"multiple: rests on {supporters.Count} item(s)"),
         _ => null,
     };
 
-    /// <summary>Whether all four base corners rest on some surface, which no ratio can express.</summary>
-    private static bool TouchesCorners(AxisAlignedBox candidate, ImmutableArray<AxisAlignedBox> surfaces)
+    /// <summary>
+    /// Whether all four base corners rest on some supporter, which no ratio can express. Only
+    /// positive-area supporters count: a neighbour touching a corner along an edge carries nothing.
+    /// </summary>
+    private static bool TouchesCorners(AxisAlignedBox candidate, List<AxisAlignedBox> supporters)
     {
         (long X, long Y)[] corners =
         [
             (candidate.Origin.X, candidate.Origin.Y), (candidate.X2, candidate.Origin.Y),
             (candidate.Origin.X, candidate.Y2), (candidate.X2, candidate.Y2),
         ];
-        return corners.All(corner => surfaces.Any(surface =>
-            surface.Origin.X <= corner.X && corner.X <= surface.X2 && surface.Origin.Y <= corner.Y && corner.Y <= surface.Y2));
+        return corners.All(corner => supporters.Any(box =>
+            box.Origin.X <= corner.X && corner.X <= box.X2 && box.Origin.Y <= corner.Y && corner.Y <= box.Y2));
     }
 }
 

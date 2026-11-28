@@ -8,19 +8,18 @@ namespace Packvium.Constraints;
 
 public sealed record DirectSupport(int Index, AxisAlignedBox Box, Int128 Area);
 
-/// <summary>Candidate support surfaces and positive-area direct supporters, in placement order.</summary>
-public sealed record DirectSupportView(ImmutableArray<AxisAlignedBox> Surfaces, ImmutableArray<DirectSupport> Supporters)
+/// <summary>Positive-area direct supporters of one candidate, in placement order.</summary>
+public sealed record DirectSupportView(ImmutableArray<DirectSupport> Supporters)
 {
     public Int128 SupportingArea => Supporters.Aggregate(Int128.Zero, (total, support) => total + support.Area);
 
     /// <summary>
-    /// Direct supports for one candidate, O(m). Every box whose top is on the candidate's base
-    /// plane is a surface and positive-area overlaps are supporters; an exact nesting
-    /// predecessor replaces its column's face entries with one full-area supporter.
+    /// Direct supports for one candidate, O(m). A box whose top is on the candidate's base plane is
+    /// a supporter when it overlaps the base with positive area; an exact nesting predecessor
+    /// replaces its column's face supporters with one full-area supporter.
     /// </summary>
     public static DirectSupportView For(IReadOnlyList<Placement> placements, ItemInstance item, AxisAlignedBox box)
     {
-        var faceSurfaces = new List<(int Index, AxisAlignedBox Box)>();
         var faceSupporters = new List<DirectSupport>();
         (int Index, AxisAlignedBox Box)? nearestLower = null;
         var nesting = item.Item.NestingHeight;
@@ -30,7 +29,6 @@ public sealed record DirectSupportView(ImmutableArray<AxisAlignedBox> Surfaces, 
             var other = placement.EnvelopeBox;
             if (other.Z2 == box.Origin.Z)
             {
-                faceSurfaces.Add((index, other));
                 var area = other.OverlapAreaXy(box);
                 if (area > 0)
                 {
@@ -47,14 +45,12 @@ public sealed record DirectSupportView(ImmutableArray<AxisAlignedBox> Surfaces, 
         if (nearestLower is not { } predecessor || nesting is not { } depth
             || predecessor.Box.Z2 - box.Origin.Z != depth.Ticks)
         {
-            return new DirectSupportView([.. faceSurfaces.Select(s => s.Box)], [.. faceSupporters]);
+            return new DirectSupportView([.. faceSupporters]);
         }
-        var surfaces = faceSurfaces.Where(entry => !SameNestingColumn(placements[entry.Index], item, box)).ToList();
         var supporters = faceSupporters.Where(s => !SameNestingColumn(placements[s.Index], item, box)).ToList();
-        surfaces.Insert(surfaces.TakeWhile(entry => entry.Index < predecessor.Index).Count(), predecessor);
         supporters.Insert(supporters.TakeWhile(s => s.Index < predecessor.Index).Count(),
             new DirectSupport(predecessor.Index, predecessor.Box, predecessor.Box.OverlapAreaXy(box)));
-        return new DirectSupportView([.. surfaces.Select(s => s.Box)], [.. supporters]);
+        return new DirectSupportView([.. supporters]);
     }
 
     private static bool SameNestingColumn(Placement placement, ItemInstance item, AxisAlignedBox box)

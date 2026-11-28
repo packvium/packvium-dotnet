@@ -12,7 +12,7 @@ public sealed record Dimensions
     {
         if (Math.Min(length.Ticks, Math.Min(width.Ticks, height.Ticks)) <= 0)
         {
-            throw new ArgumentException("all dimensions must be positive");
+            throw new ObjectRefusal("invalid_value", "all dimensions must be positive");
         }
         Length = length;
         Width = width;
@@ -25,10 +25,20 @@ public sealed record Dimensions
 
     public Length Height { get; }
 
+    /// <summary>Sides read from the caller's text, refused with the request schema's reason when one is not a length.</summary>
     public static Dimensions Of(string length, string width, string height, string unit = "mm",
-        Rounding rounding = Rounding.Nearest) =>
-        new(Units.Length.Of(length, unit, rounding), Units.Length.Of(width, unit, rounding),
-            Units.Length.Of(height, unit, rounding));
+        Rounding rounding = Rounding.Nearest)
+    {
+        try
+        {
+            return new(Units.Length.Of(length, unit, rounding), Units.Length.Of(width, unit, rounding),
+                Units.Length.Of(height, unit, rounding));
+        }
+        catch (UnitRefusal refusal)
+        {
+            throw new ObjectRefusal(refusal.Reason, refusal.Detail);
+        }
+    }
 
     public static Dimensions Mm(string length, string width, string height, Rounding rounding = Rounding.Nearest) =>
         Of(length, width, height, "mm", rounding);

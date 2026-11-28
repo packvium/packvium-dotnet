@@ -28,13 +28,13 @@ public sealed class LengthTests
         Assert.Equal(ticks, Length.Parse(text).Ticks);
 
     [Theory]
-    [InlineData("-0 1/2", typeof(ArgumentException))]
-    [InlineData("0.0000000000000000001", typeof(ArgumentException))]
+    [InlineData("-0 1/2", typeof(UnitRefusal))]
+    [InlineData("0.0000000000000000001", typeof(UnitRefusal))]
     [InlineData("nan", typeof(ArgumentException))]
-    [InlineData("2K", typeof(ArithmeticException))]
-    [InlineData("1 2", typeof(ArithmeticException))]
-    [InlineData("1.2.3", typeof(ArithmeticException))]
-    [InlineData("abc", typeof(ArithmeticException))]
+    [InlineData("2K", typeof(UnitRefusal))]
+    [InlineData("1 2", typeof(UnitRefusal))]
+    [InlineData("1.2.3", typeof(UnitRefusal))]
+    [InlineData("abc", typeof(UnitRefusal))]
     [InlineData("inf", typeof(OverflowException))]
     [InlineData("1/0", typeof(DivideByZeroException))]
     public void RefusesWhatTheReferenceRefuses(string text, Type error) =>
@@ -72,7 +72,8 @@ public sealed class LengthTests
     public void RefusesANegativeTickCount() => Assert.Throws<ArgumentException>(() => new Length(-1));
 
     [Fact]
-    public void RefusesAnUnknownUnit() => Assert.Throws<ArgumentException>(() => Length.Of("1", "furlong"));
+    public void RefusesAnUnknownUnit() =>
+        Assert.Equal("invalid_unit", Assert.Throws<UnitRefusal>(() => Length.Of("1", "furlong")).Reason);
 
     [Fact]
     public void ReadsAUnitCaseInsensitively() => Assert.Equal(16_000, Length.Of("1", " MM ").Ticks);

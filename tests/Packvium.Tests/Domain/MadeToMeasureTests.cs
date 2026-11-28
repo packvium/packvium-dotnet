@@ -76,17 +76,17 @@ public sealed class MadeToMeasureTests
     [Fact]
     public void AMachineOffItsOwnGridIsRefused()
     {
-        Assert.Contains("does not divide", Assert.Throws<ArgumentException>(() =>
+        Assert.Contains("does not divide", Assert.Throws<ObjectRefusal>(() =>
             new Container("odd", Dimensions.Mm("1500", "1510", "1510"), madeToMeasure: Machine())).Message);
-        Assert.Contains("exceeds inner_dimensions", Assert.Throws<ArgumentException>(() =>
+        Assert.Contains("exceeds inner_dimensions", Assert.Throws<ObjectRefusal>(() =>
             new Container("small", Dimensions.Mm("50", "1510", "1510"), madeToMeasure: Machine())).Message);
-        Assert.Contains("minimum must be positive", Assert.Throws<ArgumentException>(() =>
+        Assert.Contains("minimum must be positive", Assert.Throws<ObjectRefusal>(() =>
             new MadeToMeasure(new Triple(0, 1, 1), new Triple(1, 1, 1))).Message);
-        Assert.Contains("increment must be positive", Assert.Throws<ArgumentException>(() =>
+        Assert.Contains("increment must be positive", Assert.Throws<ObjectRefusal>(() =>
             new MadeToMeasure(new Triple(1, 1, 1), new Triple(1, 0, 1))).Message);
-        Assert.Contains("prices cannot be negative", Assert.Throws<ArgumentException>(() =>
+        Assert.Contains("prices cannot be negative", Assert.Throws<ObjectRefusal>(() =>
             new MadeToMeasure(new Triple(1, 1, 1), new Triple(1, 1, 1), tarePerSquareMetre: -1)).Message);
-        Assert.Contains("outer_allowance cannot be negative", Assert.Throws<ArgumentException>(() =>
+        Assert.Contains("outer_allowance cannot be negative", Assert.Throws<ObjectRefusal>(() =>
             new MadeToMeasure(new Triple(1, 1, 1), new Triple(1, 1, 1), outerAllowance: new Triple(0, -1, 0))).Message);
     }
 

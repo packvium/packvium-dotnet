@@ -18,7 +18,23 @@ internal static class PythonDecimal
     /// </summary>
     private const int MaxExponentMagnitude = 100_000;
 
+    /// <summary>
+    /// The exact value of <c>Decimal(text)</c>. Text that is not a decimal is refused as
+    /// <c>wrong_type</c>, naming the text.
+    /// </summary>
     public static Rational ToRational(string text)
+    {
+        try
+        {
+            return Parse(text);
+        }
+        catch (SyntaxException)
+        {
+            throw new UnitRefusal("wrong_type", $"invalid decimal or fraction: {text}");
+        }
+    }
+
+    private static Rational Parse(string text)
     {
         var ascii = ToAscii(PythonText.Strip(text));
         var position = 0;
@@ -62,7 +78,7 @@ internal static class PythonDecimal
             var digit = PythonText.DecimalValue(rune);
             if (digit < 0)
             {
-                throw ConversionSyntax();
+                throw new SyntaxException();
             }
             builder.Append((char)('0' + digit));
         }
@@ -110,7 +126,7 @@ internal static class PythonDecimal
         }
         if (integerDigits + fractionalDigits == 0)
         {
-            throw ConversionSyntax();
+            throw new SyntaxException();
         }
         var exponent = ReadExponent(ascii, position) - fractionalDigits;
         var signed = negative ? -coefficient : coefficient;
@@ -127,7 +143,7 @@ internal static class PythonDecimal
         }
         if (ascii[position] != 'e' && ascii[position] != 'E')
         {
-            throw ConversionSyntax();
+            throw new SyntaxException();
         }
         var digits = ascii[(position + 1)..];
         var negative = digits.StartsWith('-');
@@ -137,7 +153,7 @@ internal static class PythonDecimal
         }
         if (digits.Length == 0 || !AllAsciiDigits(digits))
         {
-            throw ConversionSyntax();
+            throw new SyntaxException();
         }
         var magnitude = BigInteger.Parse(digits, System.Globalization.CultureInfo.InvariantCulture);
         if (magnitude > MaxExponentMagnitude)
@@ -159,6 +175,6 @@ internal static class PythonDecimal
         return true;
     }
 
-    private static ArithmeticException ConversionSyntax() =>
-        new("[<class 'decimal.ConversionSyntax'>]");
+    /// <summary>The text is not a decimal; <see cref="ToRational"/> names the text it was given.</summary>
+    private sealed class SyntaxException : Exception;
 }

@@ -43,7 +43,7 @@ public sealed class ModelTests
     [Theory]
     [MemberData(nameof(InvalidItems))]
     public void RefusesAnItemWithTheReferenceMessage(string message, Func<Item> build) =>
-        Assert.Equal(message, Assert.Throws<ArgumentException>(build).Message);
+        Assert.Equal(message, Assert.Throws<ObjectRefusal>(build).Message);
 
     [Fact]
     public void DerivesPackedContainerFactsAsTheReference()
@@ -96,7 +96,7 @@ public sealed class ModelTests
     public void RefusesAnObstacleOutsideItsContainer()
     {
         var obstacle = new Obstacle("o", new AxisAlignedBox(Point.Origin, Dimensions.Mm("20", "1", "1")));
-        var error = Assert.Throws<ArgumentException>(() =>
+        var error = Assert.Throws<ObjectRefusal>(() =>
             new Container("c", Dimensions.Mm("10", "10", "10"), obstacles: [obstacle]));
         Assert.Equal("obstacle o lies outside container", error.Message);
     }

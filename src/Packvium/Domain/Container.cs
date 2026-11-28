@@ -190,7 +190,7 @@ public sealed class Container
     {
         if (Id.Length == 0)
         {
-            throw new ArgumentException("container id is required");
+            throw new ObjectRefusal("invalid_value", "container id is required");
         }
         if (DeformableBoundary is not null)
         {
@@ -200,24 +200,21 @@ public sealed class Container
         MadeToMeasure?.RequireSixtyFourBitBox(Triple.Of(InnerDimensions), CostMinor, TareWeight.Ticks);
         if (Quantity is <= 0)
         {
-            throw new ArgumentException("container quantity must be positive");
+            throw new ObjectRefusal("below_minimum", "container quantity must be positive");
         }
         if (CostMinor < 0)
         {
-            throw new ArgumentException("container cost cannot be negative");
+            throw new ObjectRefusal("below_minimum", "container cost cannot be negative");
         }
-        if (!(VoidFillReserveRatio >= 0 && VoidFillReserveRatio <= 1))
-        {
-            throw new ArgumentException("void_fill_reserve_ratio must be between 0 and 1");
-        }
+        Item.RatioBetweenZeroAndOne(VoidFillReserveRatio, "void_fill_reserve_ratio");
         ValidateAxles();
         if (TagLimits.Any(limit => limit.Value < 1))
         {
-            throw new ArgumentException("tag_limits must be at least 1");
+            throw new ObjectRefusal("below_minimum", "tag_limits must be at least 1");
         }
         if (MaxItems is < 1)
         {
-            throw new ArgumentException("container max_items must be at least 1");
+            throw new ObjectRefusal("below_minimum", "container max_items must be at least 1");
         }
         if (doors.FirstOrDefault(door => !Directions.All.Contains(door)) is { } unknown)
         {
@@ -225,12 +222,12 @@ public sealed class Container
         }
         if (OuterDimensions is not null && !InnerDimensions.FitsInside(OuterDimensions))
         {
-            throw new ArgumentException("outer dimensions cannot be smaller than inner dimensions");
+            throw new ObjectRefusal("invalid_value", "outer dimensions cannot be smaller than inner dimensions");
         }
         var boundary = new AxisAlignedBox(Point.Origin, InnerDimensions);
         if (Obstacles.FirstOrDefault(obstacle => !obstacle.Boxes.All(boundary.Contains)) is { } outside)
         {
-            throw new ArgumentException($"obstacle {outside.Id} lies outside container");
+            throw new ObjectRefusal("invalid_value", $"obstacle {outside.Id} lies outside container");
         }
     }
 
@@ -242,7 +239,7 @@ public sealed class Container
     {
         if (!FlatBag.Kinds.Contains(DeformableBoundary))
         {
-            throw new ArgumentException($"unknown deformable_boundary kind {Units.PythonText.Repr(DeformableBoundary!)}");
+            throw new ObjectRefusal("not_allowed", $"unknown deformable_boundary kind {Units.PythonText.Repr(DeformableBoundary!)}");
         }
         (string Name, bool Present)[] refused =
         [
@@ -252,7 +249,7 @@ public sealed class Container
         ];
         if (refused.FirstOrDefault(field => field.Present) is { Name: { } name })
         {
-            throw new ArgumentException($"{name} cannot be combined with deformable_boundary");
+            throw new ObjectRefusal("not_allowed", $"{name} cannot be combined with deformable_boundary");
         }
     }
 
@@ -265,11 +262,11 @@ public sealed class Container
         var (front, rear) = axles;
         if (front.Position.Ticks >= rear.Position.Ticks)
         {
-            throw new ArgumentException("the front axle must be strictly nearer the origin than the rear axle");
+            throw new ObjectRefusal("invalid_value", "the front axle must be strictly nearer the origin than the rear axle");
         }
         if (rear.Position.Ticks > InnerDimensions.Length.Ticks)
         {
-            throw new ArgumentException("axle positions must lie within the container's length");
+            throw new ObjectRefusal("invalid_value", "axle positions must lie within the container's length");
         }
     }
 }
